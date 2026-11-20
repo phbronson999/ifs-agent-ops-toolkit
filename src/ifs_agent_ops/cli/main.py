@@ -102,7 +102,8 @@ def cmd_package(args: argparse.Namespace) -> int:
 
     if args.package_command == "init":
         try:
-            p = init_package(Path(args.path), args.name, description=args.description, projections=args.projection)
+            p = init_package(Path(args.path), args.name, description=args.description, projections=args.projection,
+                             display_name=args.display_name)
         except PackageError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
@@ -166,6 +167,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_init = pkg.add_parser("init", help="create a package skeleton")
     p_init.add_argument("path")
     p_init.add_argument("--name", required=True, help="package name, e.g. ifs-customer-orders")
+    p_init.add_argument("--display-name", default="", help="renameable human-facing title; --name is permanent")
     p_init.add_argument("--description", default="")
     p_init.add_argument("--projection", action="append", default=[], help="IFS projection (repeatable)")
     pkg.add_parser("list", help="list packages found via IFS_AGENT_OPS_PACKAGES")
