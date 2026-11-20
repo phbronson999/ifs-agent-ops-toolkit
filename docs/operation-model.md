@@ -10,6 +10,31 @@ the first is evidence for both.
 | **Capability** (curated) | What should an agent/application do to accomplish the business task, and what may it supply? | `capabilities/<id>.yaml` (Phase 7b) | authored by a human, assisted by drafts | the business contract is reviewed and safe to generate from |
 
 ```text
+Recording
+  -> Observed workflow            evidence (operations draft)
+  -> Canonical operations         complete IFS contracts (operations draft)
+  -> Technical operation approval human gate 1
+  -> Curated capability           references approved operations (Phase 7b)
+  -> Capability approval          human gate 2
+  -> Generators                   skill, connector, dispatcher, agent (Phase 8+)
+```
+
+The two approvals mean different things, and neither implies the other:
+
+- **Operation approval** means *this is a technically correct canonical representation of the
+  IFS operation.* It doesn't imply agent exposure, connector exposure, or authorisation for any
+  particular capability.
+- **Capability approval** means *this is the intentional and safe business contract that
+  downstream agents and applications may use.* Only approved capabilities, through the approved
+  operations they reference, reach generators.
+
+Naming: the curated layer is a separate model, `Capability`, stored in `capabilities/`. The
+existing `Workflow` model stays the observed, recording-derived workflow (its required
+`recording` reference is deliberate) and is not reused for curated sequences.
+
+At run time a capability turns input into an IFS request like this:
+
+```text
 PDF / user input
   -> capability inputs (agent / document / user question)
   -> lookups and validation (capability steps over canonical operations)
@@ -70,12 +95,23 @@ inputs:                               # the agent-facing contract
       - { name: catalog_no, type: string, source: document, required: true, resolve: { step: validate-line } }
       - { name: quantity,   type: decimal, source: document, required: true }
 
-actions:                              # what an agent/dispatcher can invoke
+questions:                            # decisions the agent must put to the user
+  - id: choose-customer
+    when: { step: find-customer, matches: many }     # ambiguous lookup -> ask, never guess
+    asks: customer_no
+  - id: delivery-date
+    when: { input: wanted_delivery_date, missing: true }
+    asks: wanted_delivery_date
+
+actions:                              # externally exposed: what an agent/dispatcher can invoke
   - name: prepare                     # lookups + validation only; returns a proposal and warnings
     steps: [find-customer, customer-defaults, validate-line, price-line]
+    returns: [proposal, warnings]
   - name: submit                      # writes; refuses without explicit confirmation
-    requires_confirmation: true
+    requires_confirmation: true       # the user confirmed the proposal returned by prepare
+    confirm: [customer_no, wanted_delivery_date, lines, total]   # state shown before the write
     steps: [create-header, create-line]
+    returns: [order_no, warnings]
 
 steps:
   - id: find-customer
@@ -102,9 +138,19 @@ steps:
       body.CatalogNo: { item: catalog_no }
       body.BuyQtyDue: { item: quantity }
 
-outputs:
+outputs:                              # meaningful results for the consuming agent/application
   - { name: order_no, step: create-header, field: OrderNo }
+  - { name: total, step: price-line, field: TotalAmount, aggregate: sum }
+warnings:                             # surfaced to the user, never silently accepted
+  - { from: ifs, header: X-IFS-Accept-Warnings }     # IFS business warnings on write steps
+  - { from: step, step: validate-line, when: "<condition>" }
+errors:                               # mapped to agent-meaningful outcomes
+  - { step: find-customer, when: { matches: none }, meaning: customer-not-found }
+  - { step: create-header, when: { status: 4xx }, meaning: order-rejected, include: ifs-message }
 ```
+
+Steps that appear in no action's `steps` list are internal support and are never invoked on their
+own. An action is the only externally exposed unit.
 
 Value sources: `input` (agent, document or user), `item` (a field of a list input), `step`
 (an earlier step's response field), `config` (package default), `derived` (an expression over
@@ -122,8 +168,11 @@ Every question a generator needs answered maps to a field:
 | Which are required from the user/PDF? | `inputs` with `required: true`, by `source` |
 | From earlier outputs / defaults / derived / fixed? | step `bindings` (`step` / `config` / `derived` / `fixed`) |
 | Which need lookup or validation? | `inputs[].resolve` and `role: lookup|validation` steps |
-| Which need user confirmation? | `inputs[].confirm` and `actions[].requires_confirmation` |
+| Which need user confirmation? | `inputs[].confirm`, `actions[].requires_confirmation` and `actions[].confirm` (state shown before the write) |
+| Which decisions require a user question? | `questions` (ambiguous lookups, missing required inputs) |
+| What is meaningful to return? | `outputs`, `warnings` and `errors` (mapped outcomes, not raw IFS responses) |
 | What the dispatcher exposes | `actions` with their inputs and outputs (not connector parameters) |
+| Their intentional business sequence | `actions[].steps` order (not the observed recording order) |
 
 Validation rules for capabilities (Phase 7b):
 - every referenced operation exists and is **approved**
@@ -131,7 +180,8 @@ Validation rules for capabilities (Phase 7b):
   and precedes its use
 - every **required** canonical parameter of a write step is bound
 - input types are compatible with the canonical types they feed
-- write actions require confirmation
+- write actions require confirmation, and every `confirm` entry is an input or output
+- every `questions[].asks` names an input, and every required `source: user` input has a question
 
 ## 4. What each generator reads
 
