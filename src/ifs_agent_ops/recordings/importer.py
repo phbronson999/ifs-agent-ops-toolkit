@@ -49,12 +49,12 @@ class ImportResult:
 
 def _fingerprint(har: dict):
     views, links = build_sequence(calls_from_har(har))
-    calls = [(v.index, v.method, v.status, v.kind, v.service, v.target, v.is_action, v.response,
+    calls = [(v.ref, v.method, v.status, v.kind, v.service, v.target, v.is_action, v.response,
               tuple(v.headers), tuple(v.body_keys), tuple(v.select),
               tuple(anonymise_filter(x) for x in v.expand),  # nested $filter literals are values
               v.returns_etag, v.traced)
-             for v in views]
-    flow = [(ln.to_index, ln.to_place, ln.from_index, ln.from_field) for ln in links]
+             for v in views]  # includes $batch parts, so redaction inside batches is verified too
+    flow = [(ln.to_ref, ln.to_place, ln.from_ref, ln.from_field) for ln in links]
     return calls, flow, views
 
 
