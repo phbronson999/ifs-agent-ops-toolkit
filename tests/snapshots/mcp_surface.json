@@ -1,0 +1,429 @@
+{
+  "prompts": [
+    {
+      "arguments": [
+        {
+          "description": "Absolute path to a .har file exported from browser DevTools.",
+          "name": "har_file_path",
+          "required": true
+        },
+        {
+          "description": "Filename for the skill (without .md), e.g. 'ifs-purchase-orders'.",
+          "name": "skill_name",
+          "required": true
+        }
+      ],
+      "description": "Build an IFS skill from a browser HAR recording.",
+      "name": "build_ifs_skill_from_har"
+    },
+    {
+      "arguments": [
+        {
+          "description": "Absolute path to a downloaded OpenAPI/Swagger JSON file.",
+          "name": "openapi_file_path",
+          "required": true
+        },
+        {
+          "description": "Filename for the skill (without .md), e.g. 'ifs-parts'.",
+          "name": "skill_name",
+          "required": true
+        }
+      ],
+      "description": "Build an IFS skill from a downloaded OpenAPI/Swagger spec file.",
+      "name": "build_ifs_skill_from_openapi"
+    },
+    {
+      "arguments": [
+        {
+          "description": "IFS projection service name, e.g. 'CustomerHandling', 'TechPortalTaskExecution'.",
+          "name": "projection_name",
+          "required": true
+        },
+        {
+          "description": "Filename for the skill (without .md), e.g. 'ifs-parts', 'ifs-sales-customers'.",
+          "name": "skill_name",
+          "required": true
+        }
+      ],
+      "description": "Build an IFS skill by fetching the OpenAPI spec live for a named projection.",
+      "name": "build_ifs_skill_from_projection"
+    }
+  ],
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Call a protected IFS Cloud API endpoint using an authenticated session. IFS Cloud projection names, endpoint paths, key fields, and OData filter syntax are non-standard and vary per customer configuration. Guessing them will produce 404 errors or silently return wrong data. You MUST call get_api_guide first to get the correct endpoint and query pattern for the workflow \u2014 do not skip this step even if you think you know the endpoint. Do NOT call $metadata, probe unknown paths, or construct endpoints from scratch. If get_api_guide returns no matching guide, stop and tell the user: 'I don't have a skill for that workflow yet. Please perform this action in IFS Cloud in your browser, then export a HAR file from DevTools (Network tab \u2192 right-click \u2192 Save all as HAR with content) and use the build_ifs_skill_guide prompt to create a skill for it.' If the response contains error 'authentication_required', immediately call start_oauth \u2014 do not relay the error to the user or ask them to authenticate manually. If no session_id is provided, uses the most recent saved session. Use headers to pass If-Match (ETag) for PATCH/DELETE/bound actions.",
+      "inputSchema": {
+        "properties": {
+          "body": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Body"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "headers": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Headers"
+          },
+          "method": {
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "DELETE",
+              "PATCH"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Session Id"
+          }
+        },
+        "required": [
+          "endpoint",
+          "method"
+        ],
+        "title": "call_protected_apiArguments",
+        "type": "object"
+      },
+      "name": "call_protected_api"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Export large API result sets to a CSV file. Fetches data in batches of 100 records using $top/$skip pagination and saves to the path set in IFS_MCP_EXPORT_DIR env var, otherwise ~/.ifs-mcp/exports/. Use this when call_protected_api returns a 'Response too large' warning.",
+      "inputSchema": {
+        "properties": {
+          "body": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Body"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Filename"
+          },
+          "method": {
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "DELETE",
+              "PATCH"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Session Id"
+          }
+        },
+        "required": [
+          "endpoint",
+          "method"
+        ],
+        "title": "export_api_dataArguments",
+        "type": "object"
+      },
+      "name": "export_api_data"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Look up the skill guide for an IFS workflow before querying the API. IFS Cloud endpoint paths, projection names, key fields, and OData filter syntax are customer-specific and non-standard \u2014 they cannot be inferred from general OData or REST knowledge. Call this first with a keyword (e.g. 'customer', 'sales', 'parts') to get the correct endpoints and query patterns. Call without arguments to list all available guides.",
+      "inputSchema": {
+        "properties": {
+          "guide": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Guide"
+          }
+        },
+        "title": "get_api_guideArguments",
+        "type": "object"
+      },
+      "name": "get_api_guide"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Parse a projection's $metadata XML and return resolved enum definitions for its entity sets. Use this when authoring $filter expressions for enum fields \u2014 IFS Cloud requires the fully qualified enum type name (e.g. IfsApp.CustomerOrderHandling.CustomerOrderState'Released'). Pass projection_name (e.g. 'CustomerOrderHandling'). Pass entity_set to filter to a single entity set and keep the response small (recommended). Reference_ sets are excluded by default; set include_reference_sets=true to include them.",
+      "inputSchema": {
+        "properties": {
+          "entity_set": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Entity Set"
+          },
+          "include_reference_sets": {
+            "default": false,
+            "title": "Include Reference Sets",
+            "type": "boolean"
+          },
+          "projection_name": {
+            "title": "Projection Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "projection_name"
+        ],
+        "title": "get_projection_enum_mapArguments",
+        "type": "object"
+      },
+      "name": "get_projection_enum_map"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Get information about the current saved session, including session ID and expiration status.",
+      "inputSchema": {
+        "properties": {},
+        "title": "get_session_infoArguments",
+        "type": "object"
+      },
+      "name": "get_session_info"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Import an IFS resource guide (skill) from an HTTPS URL or local file path and make it available immediately. Useful for sharing skills between users \u2014 share the .md file and others can import it with this tool. GitHub raw URLs work well: https://raw.githubusercontent.com/user/repo/main/skills/my-skill.md. The skill is available immediately after import \u2014 no restart needed.",
+      "inputSchema": {
+        "properties": {
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Filename"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "import_skillArguments",
+        "type": "object"
+      },
+      "name": "import_skill"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read and summarise a browser HAR file for skill authoring. Returns a structured summary of the IFS API calls found in the recording. Provide the absolute path to the .har file exported from browser DevTools.",
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "parse_har_fileArguments",
+        "type": "object"
+      },
+      "name": "parse_har_file"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read and summarise a downloaded OpenAPI/Swagger JSON file for skill authoring. Returns a structured summary of the entity sets, methods, and properties found in the spec. Provide the absolute path to the downloaded JSON file.",
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "read_openapi_fileArguments",
+        "type": "object"
+      },
+      "name": "read_openapi_file"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Save an IFS resource guide (skill) to the skills library. For new skills, writes immediately. For existing skills, writes the update and returns a summary of what changed. Call this after drafting a skill with build_ifs_skill_guide. Filename must end in .md and follow the convention: ifs-[module]-[area].md.",
+      "inputSchema": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "content"
+        ],
+        "title": "save_skillArguments",
+        "type": "object"
+      },
+      "name": "save_skill"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Save content to the project scratch directory (IFS_MCP_SCRATCH_DIR env var, otherwise ~/.ifs-mcp/scratch/). Use this to persist large API responses, downloaded OpenAPI specs, or any temp file you want in a known local location. Returns the full path of the saved file.",
+      "inputSchema": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "content"
+        ],
+        "title": "save_to_scratchArguments",
+        "type": "object"
+      },
+      "name": "save_to_scratch"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Start OAuth 2.0 authentication flow \u2014 opens a login window in the browser. Call this automatically whenever an API tool returns an authentication_required error or session expiry. Do not ask the user to trigger this manually.",
+      "inputSchema": {
+        "properties": {
+          "force": {
+            "default": false,
+            "title": "Force",
+            "type": "boolean"
+          }
+        },
+        "title": "start_oauthArguments",
+        "type": "object"
+      },
+      "name": "start_oauth"
+    }
+  ]
+}

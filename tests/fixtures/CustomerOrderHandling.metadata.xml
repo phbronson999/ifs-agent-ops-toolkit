@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="IfsApp.CustomerOrderHandling" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EnumType Name="CustomerOrderState">
+        <Member Name="Planned" Value="0"/><Member Name="Released" Value="1"/><Member Name="Invoiced" Value="2"/>
+      </EnumType>
+      <EnumType Name="FndBoolean"><Member Name="True" Value="0"/><Member Name="False" Value="1"/></EnumType>
+      <EntityType Name="CustomerOrder">
+        <Key><PropertyRef Name="OrderNo"/></Key>
+        <Property Name="OrderNo" Type="Edm.String" Nullable="false"/>
+        <Property Name="Objstate" Type="IfsApp.CustomerOrderHandling.CustomerOrderState"/>
+        <Property Name="BackorderAllowed" Type="IfsApp.CustomerOrderHandling.FndBoolean"/>
+      </EntityType>
+      <EntityType Name="CustOrdCust7">
+        <Property Name="CustomerNo" Type="Edm.String"/>
+      </EntityType>
+      <EntityContainer Name="Main">
+        <EntitySet Name="CustomerOrderSet" EntityType="IfsApp.CustomerOrderHandling.CustomerOrder"/>
+        <EntitySet Name="Reference_CustOrdCust7" EntityType="IfsApp.CustomerOrderHandling.CustOrdCust7"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

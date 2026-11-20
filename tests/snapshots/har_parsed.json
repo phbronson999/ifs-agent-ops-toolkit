@@ -1,0 +1,156 @@
+{
+  "filtered_count": 7,
+  "groups": [
+    {
+      "call_count": 1,
+      "entity_or_function": "CustomerOrder_Default",
+      "expand": [],
+      "filter_patterns": [],
+      "is_action": false,
+      "method": "GET",
+      "orderby": [],
+      "request_body_keys": [],
+      "response_sample": {
+        "Contract": "str",
+        "CurrencyCode": "str",
+        "Objstate": "{object}",
+        "OrderId": "str",
+        "WantedDeliveryDate": "null"
+      },
+      "select_fields": [],
+      "service": "CustomerOrderHandling",
+      "top": null
+    },
+    {
+      "call_count": 1,
+      "entity_or_function": "Reference_UserAllowedSiteLov",
+      "expand": [],
+      "filter_patterns": [
+        "Contract eq '{value}'"
+      ],
+      "is_action": false,
+      "method": "GET",
+      "orderby": [],
+      "request_body_keys": [],
+      "response_sample": {
+        "Contract": "str",
+        "Description": "str"
+      },
+      "select_fields": [
+        "Contract",
+        "Description"
+      ],
+      "service": "CustomerOrderHandling",
+      "top": 25
+    },
+    {
+      "call_count": 2,
+      "entity_or_function": "Reference_CustOrdCust7",
+      "expand": [],
+      "filter_patterns": [
+        "CustomerNo eq '{value}'",
+        "contains(Name, '{value}')"
+      ],
+      "is_action": false,
+      "method": "GET",
+      "orderby": [
+        "CustomerNo"
+      ],
+      "request_body_keys": [],
+      "response_sample": {
+        "CreditLimit": "float",
+        "CustomerNo": "str",
+        "Name": "str"
+      },
+      "select_fields": [
+        "CustomerNo",
+        "Name",
+        "Company"
+      ],
+      "service": "CustomerOrderHandling",
+      "top": null
+    },
+    {
+      "call_count": 2,
+      "entity_or_function": "CustomerOrderSet",
+      "expand": [
+        "CustomerRef"
+      ],
+      "filter_patterns": [
+        "DateEntered gt {date} and LineCount gt {number}",
+        "Objstate eq IfsApp.CustomerOrderHandling.CustomerOrderState'Released'"
+      ],
+      "is_action": false,
+      "method": "GET",
+      "orderby": [],
+      "request_body_keys": [],
+      "response_sample": {
+        "LineCount": "int",
+        "OrderNo": "str"
+      },
+      "select_fields": [
+        "OrderNo"
+      ],
+      "service": "CustomerOrderHandling",
+      "top": null
+    },
+    {
+      "call_count": 1,
+      "entity_or_function": "CustomerOrderSet",
+      "expand": [],
+      "filter_patterns": [],
+      "is_action": false,
+      "method": "POST",
+      "orderby": [],
+      "request_body_keys": [
+        "Contract",
+        "CustomerNo",
+        "OrderId",
+        "WantedDeliveryDate"
+      ],
+      "response_sample": {
+        "Objstate": "str",
+        "OrderNo": "str"
+      },
+      "select_fields": [],
+      "service": "CustomerOrderHandling",
+      "top": null
+    },
+    {
+      "call_count": 1,
+      "entity_or_function": "CustomerOrder_ValidateOrder",
+      "expand": [],
+      "filter_patterns": [],
+      "is_action": true,
+      "method": "POST",
+      "orderby": [],
+      "request_body_keys": [
+        "RentalDb"
+      ],
+      "response_sample": {
+        "value": "str"
+      },
+      "select_fields": [],
+      "service": "CustomerOrderHandling",
+      "top": null
+    },
+    {
+      "call_count": 1,
+      "entity_or_function": "CustomerOrderLineSet",
+      "expand": [],
+      "filter_patterns": [],
+      "is_action": false,
+      "method": "PATCH",
+      "orderby": [],
+      "request_body_keys": [
+        "BuyQtyDue"
+      ],
+      "response_sample": null,
+      "select_fields": [],
+      "service": "CustomerOrderHandling",
+      "top": null
+    }
+  ],
+  "skipped_count": 4,
+  "total_entries": 13
+}

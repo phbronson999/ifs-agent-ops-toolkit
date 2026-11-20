@@ -1,0 +1,26 @@
+{
+  "projection": "CustomerOrderHandling",
+  "entity_sets": [
+    {
+      "entity_set": "CustomerOrderSet",
+      "entity_type": "IfsApp.CustomerOrderHandling.CustomerOrder",
+      "enum_properties": {
+        "Objstate": {
+          "enum_type": "IfsApp.CustomerOrderHandling.CustomerOrderState",
+          "members": [
+            "Planned",
+            "Released",
+            "Invoiced"
+          ]
+        },
+        "BackorderAllowed": {
+          "enum_type": "IfsApp.CustomerOrderHandling.FndBoolean",
+          "members": [
+            "True",
+            "False"
+          ]
+        }
+      }
+    }
+  ]
+}

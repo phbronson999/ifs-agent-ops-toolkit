@@ -1,0 +1,9 @@
+{
+  "error": "entity_set_not_found",
+  "projection": "CustomerOrderHandling",
+  "entity_set": "NoSuchSet",
+  "available": [
+    "CustomerOrderSet",
+    "Reference_CustOrdCust7"
+  ]
+}

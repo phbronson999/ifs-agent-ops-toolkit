@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ifs-agent-ops-toolkit"
+version = "0.1.0"
+description = "Toolkit for discovering, modeling, and packaging IFS Cloud operations for AI agents."
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=1.9.0,<2",  # v2 renamed FastMCP; migrate deliberately later
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+ifs-agent-ops = "ifs_agent_ops.cli.main:main"
+ifs-agent-ops-mcp = "ifs_agent_ops.mcp_server.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ifs_agent_ops"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

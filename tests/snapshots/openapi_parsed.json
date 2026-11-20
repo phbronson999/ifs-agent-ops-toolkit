@@ -1,0 +1,1471 @@
+{
+  "actions": [
+    {
+      "method": "GET",
+      "name": "Reference_ShopFloorTeamLov",
+      "path_pattern": "/Reference_ShopFloorTeamLov(Contract='{Contract}',TeamId='{TeamId}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_CompanyEmpPublic",
+      "path_pattern": "/Reference_CompanyEmpPublic(Company='{Company}',EmployeeId='{EmployeeId}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_OpInterruptionCauseLov",
+      "path_pattern": "/Reference_OpInterruptionCauseLov(InterruptionCauseId='{InterruptionCauseId}',Contract='{Contract}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_AddClockingOpLov",
+      "path_pattern": "/Reference_AddClockingOpLov(OpId={OpId})"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_ShopFloorEmployeeLov",
+      "path_pattern": "/Reference_ShopFloorEmployeeLov(EmployeeId='{EmployeeId}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_UserAllowedSiteLov",
+      "path_pattern": "/Reference_UserAllowedSiteLov(Contract='{Contract}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_ActiveIndirectJob",
+      "path_pattern": "/Reference_ActiveIndirectJob(IndirectJobId='{IndirectJobId}',Contract='{Contract}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_WorkCenterInside",
+      "path_pattern": "/Reference_WorkCenterInside(Contract='{Contract}',WorkCenterNo='{WorkCenterNo}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_WorkCenterResourceLov2",
+      "path_pattern": "/Reference_WorkCenterResourceLov2(Contract='{Contract}',WorkCenterNo='{WorkCenterNo}',ResourceId='{ResourceId}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_ShopOrderOperationLov",
+      "path_pattern": "/Reference_ShopOrderOperationLov(OrderNo='{OrderNo}',ReleaseNo='{ReleaseNo}',SequenceNo='{SequenceNo}',OperationNo={OperationNo})"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_ShopOperClockingUtil",
+      "path_pattern": "/Reference_ShopOperClockingUtil(OrderNoKey='{OrderNoKey}',ReleaseNoKey='{ReleaseNoKey}',SequenceNoKey='{SequenceNoKey}',OperationNoKey={OperationNoKey},ClockingSeq={ClockingSeq},IndirectJobId='{IndirectJobId}',Company='{Company}',EmployeeId='{EmployeeId}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_MachineDowntimeCause",
+      "path_pattern": "/Reference_MachineDowntimeCause(Contract='{Contract}',DowntimeCauseId='{DowntimeCauseId}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_WorkCenterResource",
+      "path_pattern": "/Reference_WorkCenterResource(Contract='{Contract}',WorkCenterNo='{WorkCenterNo}',ResourceId='{ResourceId}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_ShopFloorTeam",
+      "path_pattern": "/Reference_ShopFloorTeam(Contract='{Contract}',TeamId='{TeamId}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_OpInterruptionCause",
+      "path_pattern": "/Reference_OpInterruptionCause(Contract='{Contract}',InterruptionCauseId='{InterruptionCauseId}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_IndirectJob",
+      "path_pattern": "/Reference_IndirectJob(Contract='{Contract}',IndirectJobId='{IndirectJobId}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_WorkCenter",
+      "path_pattern": "/Reference_WorkCenter(Contract='{Contract}',WorkCenterNo='{WorkCenterNo}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_ShopOrderOperation",
+      "path_pattern": "/Reference_ShopOrderOperation(OrderNo='{OrderNo}',ReleaseNo='{ReleaseNo}',SequenceNo='{SequenceNo}',OperationNo={OperationNo})"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_ShopOrd",
+      "path_pattern": "/Reference_ShopOrd(OrderNo='{OrderNo}',ReleaseNo='{ReleaseNo}',SequenceNo='{SequenceNo}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_WorkCenterDepartment",
+      "path_pattern": "/Reference_WorkCenterDepartment(Contract='{Contract}',DepartmentNo='{DepartmentNo}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_ProductionLine",
+      "path_pattern": "/Reference_ProductionLine(Contract='{Contract}',ProductionLine='{ProductionLine}')"
+    },
+    {
+      "method": "GET",
+      "name": "Reference_LaborClass",
+      "path_pattern": "/Reference_LaborClass(Contract='{Contract}',LaborClassNo='{LaborClassNo}')"
+    },
+    {
+      "method": "GET",
+      "name": "Lookup_IsoUnit_EntitySet",
+      "path_pattern": "/Lookup_IsoUnit_EntitySet(Id='{Id}')"
+    },
+    {
+      "method": "GET",
+      "name": "Lookup_IsoCountry_EntitySet",
+      "path_pattern": "/Lookup_IsoCountry_EntitySet(Id='{Id}')"
+    },
+    {
+      "method": "GET",
+      "name": "TimeType",
+      "path_pattern": "/CalcMinutes(OrderNo='{OrderNo}',ReleaseNo='{ReleaseNo}',SequenceNo='{SequenceNo}',OperationNo={OperationNo},Contract='{Contract}',LaborClassNo='{LaborClassNo}',CrewSize={CrewSize},StartTime={StartTime},StopTime={StopTime},TimeType=IfsApp.ShopFloorClockingsHandling.TimeType'{TimeType}',ActualCompany='{ActualCompany}',EmployeeId='{EmployeeId}')"
+    }
+  ],
+  "base_path": "/main/ifsapplications/projection/v1/ShopFloorClockingsHandling.svc",
+  "entity_sets": [
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_ShopFloorTeamLov",
+      "key_property": null,
+      "name": "Reference_ShopFloorTeamLov",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_CompanyEmpPublic",
+      "key_property": null,
+      "name": "Reference_CompanyEmpPublic",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_OpInterruptionCauseLov",
+      "key_property": null,
+      "name": "Reference_OpInterruptionCauseLov",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_AddClockingOpLov",
+      "key_property": null,
+      "name": "Reference_AddClockingOpLov",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_ShopFloorEmployeeLov",
+      "key_property": null,
+      "name": "Reference_ShopFloorEmployeeLov",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_UserAllowedSiteLov",
+      "key_property": null,
+      "name": "Reference_UserAllowedSiteLov",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_ActiveIndirectJob",
+      "key_property": null,
+      "name": "Reference_ActiveIndirectJob",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_WorkCenterInside",
+      "key_property": null,
+      "name": "Reference_WorkCenterInside",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_WorkCenterResourceLov2",
+      "key_property": null,
+      "name": "Reference_WorkCenterResourceLov2",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_ShopOrderOperationLov",
+      "key_property": null,
+      "name": "Reference_ShopOrderOperationLov",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_ShopOperClockingUtil",
+      "key_property": null,
+      "name": "Reference_ShopOperClockingUtil",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_MachineDowntimeCause",
+      "key_property": null,
+      "name": "Reference_MachineDowntimeCause",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_WorkCenterResource",
+      "key_property": null,
+      "name": "Reference_WorkCenterResource",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_ShopFloorTeam",
+      "key_property": null,
+      "name": "Reference_ShopFloorTeam",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_OpInterruptionCause",
+      "key_property": null,
+      "name": "Reference_OpInterruptionCause",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_IndirectJob",
+      "key_property": null,
+      "name": "Reference_IndirectJob",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_WorkCenter",
+      "key_property": null,
+      "name": "Reference_WorkCenter",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_ShopOrderOperation",
+      "key_property": null,
+      "name": "Reference_ShopOrderOperation",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_ShopOrd",
+      "key_property": null,
+      "name": "Reference_ShopOrd",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_WorkCenterDepartment",
+      "key_property": null,
+      "name": "Reference_WorkCenterDepartment",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_ProductionLine",
+      "key_property": null,
+      "name": "Reference_ProductionLine",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Reference_LaborClass",
+      "key_property": null,
+      "name": "Reference_LaborClass",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Lookup_IsoUnit_Entity",
+      "key_property": null,
+      "name": "Lookup_IsoUnit_EntitySet",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "Lookup_IsoCountry_Entity",
+      "key_property": null,
+      "name": "Lookup_IsoCountry_EntitySet",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "GET"
+      ],
+      "entity_type_name": "ShopOperClockingUtil",
+      "key_property": null,
+      "name": "ShopOperClockingUtilSet",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [
+        "POST"
+      ],
+      "entity_type_name": "ModifyClocking",
+      "key_property": null,
+      "name": "ModifyClocking",
+      "properties": [
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "Contract",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ClockingSeq",
+          "nullable": false,
+          "read_only": false,
+          "type": "number"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "StartTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "FinishTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "Company",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "EmployeeId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "TeamId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "NoteText",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "CrewSize",
+          "nullable": false,
+          "read_only": false,
+          "type": "number"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "DowntimeCauseId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "InterruptionCauseId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        }
+      ],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "POST"
+      ],
+      "entity_type_name": "EmployeeListCompetency",
+      "key_property": null,
+      "name": "EmployeeListCompetency",
+      "properties": [
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "StartTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "EmployeeId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "OperationId",
+          "nullable": false,
+          "read_only": false,
+          "type": "number"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "BindValue",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        }
+      ],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "POST"
+      ],
+      "entity_type_name": "AddLaborClockingDone",
+      "key_property": null,
+      "name": "AddLaborClockingDone",
+      "properties": [
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "OrderNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ReleaseNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "SequenceNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "OperationNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "number"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "StartTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "StopTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "CrewSize",
+          "nullable": false,
+          "read_only": false,
+          "type": "number"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ActualCompany",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "CurrentEmployeeId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "EmployeeId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "CurrentTeamId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "TeamId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ClockingNoteText",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "TimeType",
+          "nullable": false,
+          "read_only": false,
+          "type": "object"
+        }
+      ],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "POST"
+      ],
+      "entity_type_name": "AddMachineClocking",
+      "key_property": null,
+      "name": "AddMachineClocking",
+      "properties": [
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "OrderNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ReleaseNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "SequenceNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "OperationNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "number"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "StartTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "StopTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "Contract",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "WorkCenterNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ResourceId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "Company",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "EmployeeId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "TeamId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ClockingNote",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "TimeType",
+          "nullable": false,
+          "read_only": false,
+          "type": "object"
+        }
+      ],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "POST"
+      ],
+      "entity_type_name": "AddInterruptionClocking",
+      "key_property": null,
+      "name": "AddInterruptionClocking",
+      "properties": [
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "OrderNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ReleaseNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "SequenceNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "OperationNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "number"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "StartTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "StopTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "Contract",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "WorkCenterNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ResourceId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "InterruptionCause",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "Company",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "EmployeeId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "TeamId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ClockingNoteText",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        }
+      ],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "POST"
+      ],
+      "entity_type_name": "AddIndirectClocking",
+      "key_property": null,
+      "name": "AddIndirectClocking",
+      "properties": [
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "Company",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "EmployeeId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "Contract",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "IndirectJobId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "StartTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "FinishTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "WorkCenterNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "TeamId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "CurrentEmployeeId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "CurrentTeamId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ClockingNoteText",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        }
+      ],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "POST"
+      ],
+      "entity_type_name": "AddMachineDowntimeClocking",
+      "key_property": null,
+      "name": "AddMachineDowntimeClocking",
+      "properties": [
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "Contract",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "WorkCenterNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ResourceId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "DowntimeCauseId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "StartTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "StopTime",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "Company",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "CurrentEmployeeId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "CurrentTeamId",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ClockingNote",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        }
+      ],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "POST"
+      ],
+      "entity_type_name": "CancelStart",
+      "key_property": null,
+      "name": "CancelStart",
+      "properties": [
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "OrderNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ReleaseNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "SequenceNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "Selection",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        }
+      ],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "POST"
+      ],
+      "entity_type_name": "CancelStop",
+      "key_property": null,
+      "name": "CancelStop",
+      "properties": [
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "OrderNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ReleaseNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "SequenceNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "Company",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ClockingSeq",
+          "nullable": false,
+          "read_only": false,
+          "type": "number"
+        }
+      ],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [
+        "POST"
+      ],
+      "entity_type_name": "CheckAllowModifyProjCost",
+      "key_property": null,
+      "name": "CheckAllowModifyProjCost",
+      "properties": [
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "OrderNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "ReleaseNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        },
+        {
+          "enum_values": [],
+          "max_length": null,
+          "name": "SequenceNo",
+          "nullable": false,
+          "read_only": false,
+          "type": "string"
+        }
+      ],
+      "required_properties": [],
+      "single_methods": []
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "GetSiteReportModeDb",
+      "key_property": null,
+      "name": "GetSiteReportModeDb",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "PopulateDialog",
+      "key_property": null,
+      "name": "PopulateDialog",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "GetFrameStartupUser",
+      "key_property": null,
+      "name": "GetFrameStartupUser",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "ValidateEmployee",
+      "key_property": null,
+      "name": "ValidateEmployee",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "GetOperationIdLov1",
+      "key_property": null,
+      "name": "GetOperationIdLov1",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "GetOperationIdLov2",
+      "key_property": null,
+      "name": "GetOperationIdLov2",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "GetOperationIdLov3",
+      "key_property": null,
+      "name": "GetOperationIdLov3",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "GetSoContract",
+      "key_property": null,
+      "name": "GetSoContract",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "PopulateDialogMach",
+      "key_property": null,
+      "name": "PopulateDialogMach",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "CalcMinutesMach",
+      "key_property": null,
+      "name": "CalcMinutesMach",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "GetOperationIdUserWhere",
+      "key_property": null,
+      "name": "GetOperationIdUserWhere",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "PopulateDialogInterruption",
+      "key_property": null,
+      "name": "PopulateDialogInterruption",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "CalcMinutesInterruption",
+      "key_property": null,
+      "name": "CalcMinutesInterruption",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "GetOperationIdUserWhereInterruption",
+      "key_property": null,
+      "name": "GetOperationIdUserWhereInterruption",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "FrameStartupUserIndirect",
+      "key_property": null,
+      "name": "FrameStartupUserIndirect",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "CalcMinutesIndirect",
+      "key_property": null,
+      "name": "CalcMinutesIndirect",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "ContractDataItemValidate",
+      "key_property": null,
+      "name": "ContractDataItemValidate",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "FrameStartupUserMachine",
+      "key_property": null,
+      "name": "FrameStartupUserMachine",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "CreateTimeResult",
+      "key_property": null,
+      "name": "CreateTimeResult",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    },
+    {
+      "collection_methods": [],
+      "entity_type_name": "GetOpIdFiltered",
+      "key_property": null,
+      "name": "GetOpIdFiltered",
+      "properties": [],
+      "required_properties": [],
+      "single_methods": [
+        "GET"
+      ]
+    }
+  ],
+  "service_name": "ShopFloorClockingsHandling",
+  "total_paths": 100
+}
