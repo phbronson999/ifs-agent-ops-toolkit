@@ -17,15 +17,14 @@ def test_matches_legacy_snapshot(case):
         assert actual == expected, f"{name} differs from legacy snapshot"
 
 
-def test_tool_inventory_unchanged():
-    import json
+def test_tool_inventory_is_legacy_plus_declared_additions():
+    import asyncio
 
-    surface = json.loads(cases.mcp_surface("new")["mcp_surface.json"])
-    assert [t["name"] for t in surface["tools"]] == sorted([
-        "start_oauth", "get_session_info", "call_protected_api", "get_api_guide",
-        "export_api_data", "import_skill", "save_skill", "save_to_scratch",
-        "parse_har_file", "read_openapi_file", "get_projection_enum_map",
-    ])
-    assert [p["name"] for p in surface["prompts"]] == sorted([
+    from ifs_agent_ops.mcp_server import server
+
+    names = {t.name for t in asyncio.run(server.mcp.list_tools())}
+    assert names == cases.LEGACY_TOOL_NAMES | cases.ADDED_TOOL_NAMES
+    prompts = [p.name for p in asyncio.run(server._list_prompts())]
+    assert sorted(prompts) == sorted([
         "build_ifs_skill_from_projection", "build_ifs_skill_from_har", "build_ifs_skill_from_openapi",
     ])
