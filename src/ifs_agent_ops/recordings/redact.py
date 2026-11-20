@@ -32,6 +32,8 @@ import string
 from typing import Any, Optional
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
+from ifs_agent_ops.recordings import multipart
+
 PLACEHOLDER_IFS_HOST = "ifs.example"
 _IFS_PATH_RE = re.compile(r"/main/ifsapplications/|/auth/realms/", re.I)
 _KEY_VALUE_RE = re.compile(r"(\w+)=(?:'((?:[^']|'')*)'|([^,)'/]+))")
@@ -51,7 +53,8 @@ _FILTER_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}(?:T[\d:.]+(?:Z|[+-]\d{2}:\d{2
 _KEEP_QUERY = {"$top", "$skip", "$count", "$format"}
 # Query options that are structural but may nest $filter literals ($expand=X($filter=...)):
 # literal redaction is applied, field names are untouched.
-_LITERAL_QUERY = {"$filter", "$search", "$select", "$expand", "$orderby", "$apply"}
+_LITERAL_QUERY = {"$filter", "$search", "$select", "$expand", "$orderby", "$apply",
+                  "select-fields"}  # IFS web client: field-name list, like $select
 _HEADER_VALUE_KEEP = {"if-match", "if-none-match", "etag", "content-type", "accept", "odata-version",
                       "odata-maxversion", "prefer", "content-length", "accept-encoding", "accept-language",
                       "user-agent", "sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "sec-fetch-dest",
@@ -268,11 +271,41 @@ class ValueRedactor:
         return self.free_text(obj) if isinstance(obj, str) else obj
 
 
+def _redact_headers(r: ValueRedactor, msg) -> None:
+    for i, (name, value) in enumerate(msg.headers):
+        lname = name.lower()
+        if lname in _URL_HEADERS:
+            msg.set_header_value(i, r.url(value))
+        elif lname not in _HEADER_VALUE_KEEP and lname not in ("content-type", "content-transfer-encoding",
+                                                                 "content-id", "content-length"):
+            msg.set_header_value(i, r.free_text(value))
+
+
+def _redact_multipart(r: ValueRedactor, text: str) -> str:
+    """$batch bodies: protocol structure is kept verbatim; embedded request URLs, headers and
+    JSON bodies are redacted with the same rules as top-level calls."""
+    mp = multipart.parse(text)
+    if mp is None:
+        return r.free_text(text)
+
+    def one(msg):
+        if msg.is_request and msg.url:
+            msg.set_url(r.url(msg.url))
+        _redact_headers(r, msg)
+        msg.body = _redact_body(r, msg.body) or msg.body
+        return msg
+
+    multipart.map_http_parts(mp, one)
+    return multipart.render(mp)
+
+
 def _redact_body(r: ValueRedactor, text: Optional[str]) -> Optional[str]:
     """Redact a body. IFS server-trace envelopes: the payload is redacted structurally and the
-    rest of the envelope (trace events) as free text."""
+    rest of the envelope (trace events) as free text. $batch multipart bodies are parsed."""
     if not text:
         return text
+    if multipart.is_multipart(text):
+        return _redact_multipart(r, text)
     try:
         data = json.loads(text)
     except Exception:
@@ -288,7 +321,7 @@ def _redact_body(r: ValueRedactor, text: Optional[str]) -> Optional[str]:
                            else r.free_text(v)) for k, v in headers.items()}
         data = r.free_text_tree({k: v for k, v in data.items() if k not in ("response", "request")}) | {
             "request": {**(data.get("request") or {}), **({"uri": r.url(uri)} if isinstance(uri, str) else {})},
-            "response": {**resp, **({"body": r.json_text(body)} if isinstance(body, str) else {}),
+            "response": {**resp, **({"body": _redact_body(r, body)} if isinstance(body, str) else {}),
                          **({"headers": headers} if isinstance(headers, dict) else {})},
         }
         return json.dumps(data, ensure_ascii=False, separators=(",", ":"))

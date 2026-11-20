@@ -125,3 +125,40 @@ mcp_server_port = 8001
   `$expand` nested filters, URL-bearing headers and keyrefs are redacted consistently.
 - Known limitation: short all-digit business values can coincide with HTTP sizes or trace
   timings (e.g. a 4-digit customer number equal to a `content-length`); these are not leaks.
+
+## Phase 6: canonical operation model v0 (pilot: customer-order create)
+
+- **Metadata:** `edmx.py` now parses actions, functions, action/function imports and complex
+  types. `ifs-agent-ops metadata snapshot` pins `$metadata` + `$openapi?V2` into
+  `metadata/<Projection>/`, with host and realm normalised (`ifs.example`, `example`) and a
+  `snapshot.yaml` holding hashes. Drafting reads only pinned snapshots.
+- **Model** (`operations/model.py`, pydantic, JSON Schema via `operations schema`):
+  - `Operation` keeps the original IFS path template (`{Key}` placeholders). Path parameters are
+    logical, with placements for repeated parent keys.
+  - Body parameters carry IFS types and enums plus observed value *shapes*. `query.fields` holds
+    the metadata types of referenced fields.
+  - It also records headers (`If-Match` required for writes to existing entities), response
+    shape, `depends_on` (from data flow), evidence and approval.
+  - `Workflow` is the ordered steps of a recording, with bindings (`to` ← step/field).
+- **Identity:** `id` = projection.kind.target (stable). `connector_operation_id` is assigned
+  once and preserved. Re-drafting updates drafts in place (revision bump only on change), never
+  rewrites approved operations, and reports their drift.
+- **Validation** (`operations/validate.py`):
+  - errors: enum `$filter` literal, string-typed flags, date-only types, unknown parameters,
+    unresolved metadata, missing `If-Match`, duplicate connector ids, dangling dependencies
+  - warnings: required-but-unobserved parameters, mixed datetime formats
+  - Datetime format is evidence-based: the recordings show which format IFS *accepted* (customer
+    orders accept UTC `Z`; shop floor clocking actions do not).
+  - `operations approve` is refused while errors exist.
+- **`$batch`:** `recordings/multipart.py` (lossless parse/render). Batch parts are calls of their
+  own in the sequence view (`#58.2`), the import verification and drafting. The IFS web client
+  creates order lines inside a `$batch` changeset, so without this the pilot's line create was
+  invisible.
+- **Phase 5 fix:** value redaction now processes multipart bodies structurally. It previously
+  fell back to free-text substitution, which could rewrite protocol text (`HTTP/1.1`,
+  `application/json`) when a business value matched it. The pilot recordings were re-imported.
+- **Interfaces:** CLI `operations draft|list|show|validate|approve|schema`, `metadata snapshot`.
+  MCP tools `draft_operations`, `list_operations`, `get_operation`.
+- **Pilot result** (`ifs-customer-orders`): 52 operations (header, lines via `$batch`, charges,
+  7 actions, 16 functions, 26 lookups/reads) and 2 workflows. A re-draft is a no-op. Validation:
+  0 errors, 0 warnings.

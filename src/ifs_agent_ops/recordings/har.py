@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union
@@ -30,6 +31,7 @@ class ObservedCall:
     response_body: Optional[str] = None      # content.text exactly as stored
     response_encoding: Optional[str] = None  # content.encoding (e.g. "base64")
     response_mime: Optional[str] = None
+    part: Optional[int] = None  # 1-based position inside a $batch (index is then the batch call's)
 
     def request_header(self, name: str) -> Optional[str]:
         return _header(self.request_headers, name)
@@ -115,6 +117,53 @@ def calls_from_har(har: dict) -> list[ObservedCall]:
 def load_har(path: Union[str, Path]) -> list[ObservedCall]:
     with open(path, encoding="utf-8") as f:
         return calls_from_har(json.load(f))
+
+
+def _response_content_type(call: ObservedCall) -> Optional[str]:
+    env = _trace_envelope(body_json(call.response_text()))
+    if env is not None:
+        headers = (env.get("response") or {}).get("headers") or {}
+        return next((v for k, v in headers.items() if str(k).lower() == "content-type"), None)
+    return call.response_mime or call.response_header("content-type")
+
+
+def batch_parts(call: ObservedCall) -> list[ObservedCall]:
+    """The requests inside an OData ``$batch`` call, paired with their responses by position."""
+    from ifs_agent_ops.recordings import multipart
+
+    if not call.url.split("?")[0].endswith("$batch") or not multipart.is_multipart(call.request_body):
+        return []
+    requests = multipart.http_parts(multipart.parse(call.request_body, call.request_mime
+                                                    or call.request_header("content-type")))
+    _status, payload = call.payload()
+    responses = multipart.http_parts(multipart.parse(payload, _response_content_type(call))) \
+        if multipart.is_multipart(payload) else []
+    service_root = call.url.split("?")[0][: -len("$batch")]
+    parts = []
+    for n, req in enumerate(requests, start=1):
+        resp = responses[n - 1] if n - 1 < len(responses) else None
+        url = req.url or ""
+        parts.append(ObservedCall(
+            index=call.index, part=n, method=(req.method or "GET").upper(),
+            url=url if re.match(r"^https?://", url) else service_root + url.lstrip("/"),
+            status=(resp.status or 0) if resp else 0, started=call.started, pageref=call.pageref,
+            resource_type=call.resource_type, request_headers=req.headers, request_body=req.body or None,
+            request_mime=req.header("Content-Type"), response_headers=resp.headers if resp else [],
+            response_body=(resp.body or None) if resp else None,
+            response_mime=resp.header("Content-Type") if resp else None,
+        ))
+    return parts
+
+
+def expand_batches(calls: list[ObservedCall]) -> list[ObservedCall]:
+    """Calls in recorded order with each ``$batch`` followed by its parts. Idempotent."""
+    if any(c.part is not None for c in calls):
+        return list(calls)
+    out: list[ObservedCall] = []
+    for call in calls:
+        out.append(call)
+        out.extend(batch_parts(call))
+    return out
 
 
 def body_json(text: Optional[str]):

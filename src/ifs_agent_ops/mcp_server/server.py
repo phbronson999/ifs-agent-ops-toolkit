@@ -165,6 +165,27 @@ async def analyze_recording(path: str, include_non_ifs: bool = False) -> str:
     return await handler(path, include_non_ifs)
 
 
+@mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False))
+async def draft_operations(package: str) -> str:
+    """Draft canonical IFS operations and workflows for an operation package from its sanitized recordings and pinned metadata snapshots. Writes operations/*.yaml and workflows/*.yaml in the package. Identities are stable: re-drafting updates draft operations in place, keeps connector operation ids, and never rewrites approved operations (differences are reported as drift). Pass the package name (from IFS_AGENT_OPS_PACKAGES) or its path."""
+    from ifs_agent_ops.mcp_server.tools.operations import draft
+    return await draft(package)
+
+
+@mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def list_operations(package: str) -> str:
+    """List the canonical operations (status, kind, method, id) and workflows of an operation package."""
+    from ifs_agent_ops.mcp_server.tools.operations import list_operations as handler
+    return await handler(package)
+
+
+@mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def get_operation(package: str, operation_id: str) -> str:
+    """Show one canonical operation as YAML: IFS path template, path/body parameters with IFS types and enums, headers (e.g. If-Match), response shape, dependencies, evidence, plus its validation findings. operation_id may be a unique part of the id."""
+    from ifs_agent_ops.mcp_server.tools.operations import get_operation as handler
+    return await handler(package, operation_id)
+
+
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
 async def read_openapi_file(path: str) -> str:
     """Read and summarise a downloaded OpenAPI/Swagger JSON file for skill authoring. Returns a structured summary of the entity sets, methods, and properties found in the spec. Provide the absolute path to the downloaded JSON file."""

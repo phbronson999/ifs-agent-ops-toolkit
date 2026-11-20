@@ -149,6 +149,80 @@ def cmd_record_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_metadata(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from ifs_agent_ops.ifs.metadata.snapshot import SnapshotRefused, fetch_snapshot
+    from ifs_agent_ops.ifs.errors import AuthenticationRequired, IfsApiError
+    from ifs_agent_ops.mcp_server.runtime import Runtime
+    from ifs_agent_ops.workspace.discovery import find_package
+    from ifs_agent_ops.workspace.package import PackageError
+
+    try:
+        package = find_package(args.package)
+        rt = Runtime.for_profile(args.profile)
+    except (PackageError, prof.ProfileError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    async def run() -> int:
+        for projection in args.projection:
+            try:
+                target = await fetch_snapshot(rt.client, package, projection, realm=rt.settings.realm,
+                                              include_openapi=not args.no_openapi)
+            except AuthenticationRequired:
+                print("error: not signed in to IFS for this profile; use the start_oauth MCP tool "
+                      "(or the IFS login) and retry", file=sys.stderr)
+                return 2
+            except (IfsApiError, SnapshotRefused) as exc:
+                print(f"error: {projection}: {exc}", file=sys.stderr)
+                return 2
+            sizes = ", ".join(f"{p.name} {p.stat().st_size // 1024} KB" for p in sorted(target.iterdir()))
+            print(f"{projection}: {target.relative_to(package.root)} ({sizes})")
+        await rt.client.aclose()
+        return 0
+
+    return asyncio.run(run())
+
+
+def cmd_operations(args: argparse.Namespace) -> int:
+    import json
+
+    from ifs_agent_ops.operations import service
+    from ifs_agent_ops.operations.model import json_schema
+    from ifs_agent_ops.operations.store import approve
+    from ifs_agent_ops.workspace.discovery import find_package
+    from ifs_agent_ops.workspace.package import PackageError
+
+    if args.operations_command == "schema":
+        print(json.dumps(json_schema(), indent=2))
+        return 0
+    try:
+        package = find_package(args.package)
+        if args.operations_command == "draft":
+            report, skipped = service.draft(package)
+            print(service.draft_summary(package, report, skipped))
+        elif args.operations_command == "list":
+            print(service.list_summary(package))
+        elif args.operations_command == "show":
+            print(service.show(package, args.operation))
+        elif args.operations_command == "validate":
+            text, errors = service.validation_report(package, args.operation, include_info=args.all)
+            print(text)
+            return 1 if errors else 0
+        elif args.operations_command == "approve":
+            text, errors = service.validation_report(package, args.operation)
+            if errors:
+                print(f"refused: {args.operation} has validation errors\n{text}", file=sys.stderr)
+                return 1
+            op = approve(package, args.operation)
+            print(f"approved {op.id} (revision {op.revision})")
+    except (PackageError, FileNotFoundError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="ifs-agent-ops")
     parser.add_argument("--version", action="store_true", help="print the toolkit version")
@@ -185,6 +259,32 @@ def main(argv: Optional[list[str]] = None) -> int:
     group.add_argument("--redact-values", action="store_true", help="redact business values (package default)")
     r_imp.add_argument("--force", action="store_true", help="replace an existing recording")
 
+    meta = sub.add_parser("metadata", help="projection metadata snapshots").add_subparsers(
+        dest="metadata_command", required=True)
+    m_snap = meta.add_parser("snapshot", help="pin $metadata and $openapi?V2 into a package (host/realm normalised)")
+    m_snap.add_argument("--package", required=True)
+    m_snap.add_argument("--projection", required=True, action="append", help="projection name (repeatable)")
+    m_snap.add_argument("--profile", help="IFS profile to fetch from (default: active profile)")
+    m_snap.add_argument("--no-openapi", action="store_true", help="snapshot $metadata only")
+
+    ops = sub.add_parser("operations", help="canonical operations and workflows").add_subparsers(
+        dest="operations_command", required=True)
+    for name, helptext in (("draft", "draft operations/workflows from recordings + metadata snapshots"),
+                           ("list", "list operations and workflows"),
+                           ("validate", "check operations against IFS rules")):
+        sp = ops.add_parser(name, help=helptext)
+        sp.add_argument("--package", required=True)
+        if name == "validate":
+            sp.add_argument("--operation")
+            sp.add_argument("--all", action="store_true", help="include info findings")
+    o_show = ops.add_parser("show", help="print one operation with its findings")
+    o_show.add_argument("operation", help="operation id (or a unique part of it)")
+    o_show.add_argument("--package", required=True)
+    o_appr = ops.add_parser("approve", help="mark an operation approved (refused while it has errors)")
+    o_appr.add_argument("operation")
+    o_appr.add_argument("--package", required=True)
+    ops.add_parser("schema", help="print the JSON Schema of operations and workflows")
+
     args = parser.parse_args(argv)
     load_env()
 
@@ -192,6 +292,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_package(args)
     if args.command == "record":
         return cmd_record_import(args)
+    if args.command == "metadata":
+        return cmd_metadata(args)
+    if args.command == "operations":
+        return cmd_operations(args)
 
     if args.version:
         try:

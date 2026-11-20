@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ifs_agent_ops.analysis.odata import anonymise_filter, parse_projection_url, parse_query
-from ifs_agent_ops.recordings.har import ObservedCall, body_json
+from ifs_agent_ops.recordings.har import ObservedCall, body_json, expand_batches
 
 # Request headers worth surfacing as evidence (standard browser headers are omitted).
 EVIDENCE_HEADERS = ("if-match", "if-none-match", "prefer", "x-ifs-accept-warnings",
@@ -39,10 +39,15 @@ class CallView:
     response: str = ""  # e.g. "collection(3)", "entity", "empty", "text", "error"
     returns_etag: bool = False
     traced: bool = False  # response came wrapped in an IFS server-trace envelope
+    part: Optional[int] = None  # position inside a $batch (index is then the batch call's)
 
     @property
     def failed(self) -> bool:
         return not (200 <= self.status < 300)
+
+    @property
+    def ref(self) -> str:
+        return f"{self.index}" if self.part is None else f"{self.index}.{self.part}"
 
 
 @dataclass
@@ -51,6 +56,16 @@ class DataLink:
     to_place: str      # "key OrderNo", "body Contract", "If-Match"
     from_index: int
     from_field: str    # response field the value came from ("@odata.etag" for ETags)
+    to_part: Optional[int] = None    # set when the sending call is a $batch part
+    from_part: Optional[int] = None  # set when the source response is a $batch part
+
+    @property
+    def to_ref(self) -> str:
+        return f"{self.to_index}" if self.to_part is None else f"{self.to_index}.{self.to_part}"
+
+    @property
+    def from_ref(self) -> str:
+        return f"{self.from_index}" if self.from_part is None else f"{self.from_index}.{self.from_part}"
 
 
 def _response_shape(status: int, body: Optional[str], data: Any) -> str:
@@ -94,9 +109,9 @@ def _sent_values(call: ObservedCall, target_path: Optional[str], body: Any) -> l
 def build_sequence(calls: list[ObservedCall]) -> tuple[list[CallView], list[DataLink]]:
     views: list[CallView] = []
     links: list[DataLink] = []
-    seen: dict[str, tuple[int, str]] = {}  # value -> (call index, response field), latest wins
+    seen: dict[str, tuple[int, Optional[int], str]] = {}  # value -> (index, part, field), latest wins
 
-    for call in calls:
+    for call in expand_batches(calls):
         target = parse_projection_url(call.url)
         req_body = body_json(call.request_body)
         status, payload = call.payload()
@@ -111,7 +126,8 @@ def build_sequence(calls: list[ObservedCall]) -> tuple[list[CallView], list[Data
             kind = "ifs"
 
         view = CallView(index=call.index, method=call.method, status=status, kind=kind,
-                        response=_response_shape(status, payload, resp_data), traced=call.ifs_traced)
+                        response=_response_shape(status, payload, resp_data), traced=call.ifs_traced,
+                        part=call.part)
         if target is not None:
             q = parse_query(call.url)
             view.service, view.target, view.is_action = target.service, target.entity_or_function, target.is_action
@@ -125,15 +141,16 @@ def build_sequence(calls: list[ObservedCall]) -> tuple[list[CallView], list[Data
                 if value in _IGNORED_VALUES or (len(value) < 2 and not value.isdigit()):
                     continue
                 if value in seen:
-                    src_index, src_field = seen[value]
-                    links.append(DataLink(call.index, place, src_index, src_field))
+                    src_index, src_part, src_field = seen[value]
+                    links.append(DataLink(call.index, place, src_index, src_field,
+                                          to_part=call.part, from_part=src_part))
 
         if kind == "ifs" and not view.failed and isinstance(resp_data, dict):
             for fld, value in _scalars(resp_data):
                 if fld == "@odata.etag":
                     view.returns_etag = True
                 if value not in _IGNORED_VALUES:
-                    seen[value] = (call.index, fld)
+                    seen[value] = (call.index, call.part, fld)
         views.append(view)
     return views, links
 
@@ -156,7 +173,7 @@ def render_sequence(views: list[CallView], links: list[DataLink], *, include_oth
         name = f"{v.service}/{v.target}" if v.service else "(non-IFS)"
         tag = " [action]" if v.is_action else (" [$batch]" if v.kind == "ifs-batch" else "")
         flags = " FAILED" if v.failed else ""
-        line = f"- #{v.index} {v.method} {name}{tag} -> {v.status}{flags} {v.response}"
+        line = f"- #{v.ref} {v.method} {name}{tag} -> {v.status}{flags} {v.response}"
         if v.returns_etag:
             line += " +etag"
         lines.append(line)
@@ -173,7 +190,7 @@ def render_sequence(views: list[CallView], links: list[DataLink], *, include_oth
     lines += ["", "### Data flow (value sent <- earlier response field)"]
     if links:
         for ln in links:
-            lines.append(f"- #{ln.to_index} {ln.to_place} <- #{ln.from_index} {ln.from_field}")
+            lines.append(f"- #{ln.to_ref} {ln.to_place} <- #{ln.from_ref} {ln.from_field}")
     else:
         lines.append("- none detected")
     return "\n".join(lines)
