@@ -79,6 +79,8 @@ def test_init_creates_layout_and_refuses_to_overwrite(tmp_path):
     p = init_package(tmp_path / "pkg", "ifs-demo", description="Demo", projections=["DemoHandling"])
     assert (p.root / "package.yaml").exists() and p.skills_dir.is_dir() and p.recordings_dir.is_dir()
     assert "*.raw.har" in (p.root / ".gitignore").read_text()
+    assert ".ifs-agent-ops/" in (p.root / ".gitignore").read_text().splitlines()
+    assert p.display_name == "ifs-demo"  # defaults to the permanent name
     assert (p.name, p.version, p.projections, p.redact_values_default) == ("ifs-demo", "0.1.0", ["DemoHandling"], True)
     with pytest.raises(PackageError, match="already contains"):
         init_package(tmp_path / "pkg", "ifs-demo")
@@ -94,6 +96,16 @@ def test_manifest_validation(tmp_path, manifest, match):
     (tmp_path / "package.yaml").write_text(manifest, encoding="utf-8")
     with pytest.raises(PackageError, match=match):
         load_package(tmp_path)
+
+
+def test_display_name_is_renameable_while_name_stays(tmp_path):
+    p = init_package(tmp_path / "pkg", "ifs-orders", display_name="Customer Orders")
+    assert (p.name, p.display_name) == ("ifs-orders", "Customer Orders")
+    manifest = p.root / "package.yaml"
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace("Customer Orders", "Customer Order Handling"),
+                        encoding="utf-8")
+    renamed = load_package(p.root)
+    assert (renamed.name, renamed.display_name) == ("ifs-orders", "Customer Order Handling")
 
 
 def test_discovery_from_parent_and_direct_paths(tmp_path, monkeypatch):

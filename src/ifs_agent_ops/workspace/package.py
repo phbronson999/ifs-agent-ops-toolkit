@@ -25,7 +25,10 @@ import yaml
 MANIFEST = "package.yaml"
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
-_KNOWN_KEYS = {"name", "version", "description", "projections", "ifs_release", "toolkit", "evidence"}
+_KNOWN_KEYS = {"name", "display_name", "version", "description", "projections", "ifs_release", "toolkit",
+               "evidence"}
+# Machine-local folder inside a package (deployed-state caches, local runs). Never committed.
+LOCAL_STATE_DIR = ".ifs-agent-ops"
 LAYOUT_DIRS = ("recordings", "metadata", "operations", "workflows", "agent/skills", "agent/instructions",
                "power-platform/connector", "dispatcher")
 
@@ -36,6 +39,8 @@ PACKAGE_GITIGNORE = """\
 raw/
 local/
 .env
+# Machine-local and deployed-state information (reserved for the toolkit; never canonical source).
+.ifs-agent-ops/
 """
 
 
@@ -45,9 +50,16 @@ class PackageError(ValueError):
 
 @dataclass
 class Package:
+    """An operation package.
+
+    ``name`` is the package's permanent logical identity: deployment intent, logical resource
+    names and consumers key on it, so it must not change once the package is established.
+    ``display_name`` is the renameable human-facing title.
+    """
     root: Path
     name: str
     version: str
+    display_name: str = ""
     description: str = ""
     projections: list[str] = field(default_factory=list)
     ifs_release: Optional[str] = None
@@ -92,13 +104,15 @@ def load_package(root: Path) -> Package:
         raise PackageError(f"{path}: 'projections' must be a list of projection names")
     evidence = data.get("evidence") or {}
     return Package(
-        root=root, name=name, version=version, description=str(data.get("description", "")),
+        root=root, name=name, version=version, display_name=str(data.get("display_name") or name),
+        description=str(data.get("description", "")),
         projections=projections, ifs_release=data.get("ifs_release"),
         redact_values_default=bool(evidence.get("redact_values", True)),
     )
 
 
-def init_package(root: Path, name: str, *, description: str = "", projections: Optional[list[str]] = None) -> Package:
+def init_package(root: Path, name: str, *, description: str = "", projections: Optional[list[str]] = None,
+                 display_name: str = "") -> Package:
     """Create the package skeleton. Refuses to overwrite an existing manifest."""
     root = Path(root)
     if (root / MANIFEST).exists():
@@ -107,7 +121,8 @@ def init_package(root: Path, name: str, *, description: str = "", projections: O
         raise PackageError(f"Package name must be lowercase letters, digits and '-' (got {name!r})")
     root.mkdir(parents=True, exist_ok=True)
     manifest = {
-        "name": name,
+        "name": name,  # permanent logical identity: do not change once established
+        "display_name": display_name or name,
         "version": "0.1.0",
         "description": description,
         "projections": projections or [],

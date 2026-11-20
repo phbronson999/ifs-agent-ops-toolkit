@@ -4,7 +4,9 @@ This is the source of truth for the lifecycle architecture and the phased migrat
 `ifs-mcp-server-local-python`. `docs/migration-from-ifs-mcp.md` records what each completed
 phase changed; this document says where the project is going and in what order.
 
-Status at time of writing: Phases 0–4 merged; Phase 5 (workspace & packages) in review.
+Status at time of writing: Phases 0–5 merged. The decisions recorded on 2026-11-20 are folded
+in: the customer-order pilot, permanent package `name`, the reserved `.ifs-agent-ops/` folder,
+and the proven agent path as the Phase 13 baseline.
 
 ---
 
@@ -84,7 +86,10 @@ power_platform:
 agents:
   - logical_name: customer-order-assistant
     source: agent/customer-order-assistant/   # Agents Toolkit / WIQD project
-    uses: [ifs-customer-orders]
+    actions:
+      - api_plugin: dispatch-customer-order   # OpenAPI action -> the flow's authenticated HTTP trigger
+        endpoint_from: flows.dispatch-customer-order.trigger_url   # resolved per target at deploy
+        auth: oauth-plugin-vault              # registration reference held in the target, not here
 ```
 
 ### 3.2 Toolkit home: targets (environment-specific, never committed to a package)
@@ -96,12 +101,15 @@ agents:
   connection reference -> connection id (resolved or created by a human once)
   secret references (Key Vault name / "prompt"), never secret values
   agent environment name (Agents Toolkit .env.<target>)
+  OAuthPluginVault registration reference and Entra app (client) id for the agent plugin
+  (resolved deployment state: the flow HTTP trigger URL the agent plugin points at)
 ```
 
 Deployment state (resolved resource IDs, last deployed versions) is **read back from the
 platform** on every `status`/`deploy` (e.g. `pac solution list`, `pac solution online-version`,
-`pac connector list`), optionally cached locally under `~/.ifs-agent-ops/state/` (gitignored).
-The platform is authoritative, never the cache.
+`pac connector list`), optionally cached locally. Caches live under `~/.ifs-agent-ops/state/`
+or in the package's reserved **`.ifs-agent-ops/`** folder, which every package `.gitignore`
+excludes and which never becomes canonical source. The platform is authoritative, never the cache.
 
 ### 3.3 Commands (conceptual; not implemented)
 
@@ -124,7 +132,8 @@ production.
 ### 3.4 Identity, idempotency and versioning
 
 - **Stable logical identities**, recorded in the package and never regenerated:
-  package `name`; solution unique name; connector logical name; connector **operationId map**
+  package `name` (**permanent** once the package is established; the renameable human-facing
+  title is `display_name`); solution unique name; connector logical name; connector **operationId map**
   (operation → operationId, so regeneration and the 300-char shortening never change published
   IDs); flow logical names; agent logical name; environment variable schema names;
   connection reference logical names.
@@ -220,14 +229,14 @@ Results: PASS, WARN, FAIL, NOT REQUIRED (for the capability asked about).
 |---|---|---|---|
 | 0–4 | done | baseline, parity tests, client decoupling, profiles, recordings/analysis | merged |
 | 5 | **Workspace & packages** (in review) | packages, discovery, redacting import boundary | parity + import verification |
-| 6 | **Operation model v0** | pydantic model and JSON Schema; drafts from recordings plus metadata; IFS rule validators; approval status. **Pilot changed to customer-order create** (the proving scenario; real recordings are already imported); shop floor clockings becomes the second package. Adds stable logical IDs (operation id, `operationId` reservation) | drafts cover the recorded create-order flow; ids stable across re-drafts |
+| 6 | **Operation model v0** | pydantic model and JSON Schema; drafts from recordings plus metadata; IFS rule validators; approval status. **Pilot: customer-order create** (decided; the primary end-to-end proving scenario, and its real recordings are already imported); shop floor clockings becomes the second package. Adds stable logical IDs (operation id, `operationId` reservation) | drafts cover the recorded create-order flow; ids stable across re-drafts |
 | 7 | **Toolchain `doctor` v1** (small, independent; can run alongside 6) | capability-based checks for `toolkit`, `ifs` and `packages`; PP/agent checks report NOT REQUIRED until their phases | doctor output on a fresh clone is actionable |
 | 8 | **Skill generator** | as planned; writes into the package; replaces legacy `save_skill` defaults | generated skill ≡ hand-written; datetime contradiction gone |
 | 9 | **Connector generator** | as planned (§5a of the plan: select → prune → compatibility transforms → annotate → validate); emits `power-platform/connector/*` and the **stable operationId map** | all checks pass; size report |
 | 10 | **Deployment foundations + Power Platform adapter v1** | `deploy.yaml` schema; targets in toolkit home; adapter interface (`plan`/`apply`/`status`); PP adapter for **solution + connector + environment variables + connection-reference placeholders** via `pac`; deployment settings file generation; manual-step checklist; `doctor --for power-platform` | deploy is idempotent to a DEV target (second run is a no-op); status shows drift |
 | 11 | **Validation runner** | target-based `validate`: static, `pac solution check`, runtime calls through the deployed connector/flow (read-only by default) | green on DEV |
 | 12 | **Dispatcher generator + flow deployment** | dispatcher definition from workflows; deployed as a solution component; turned on after import | flow runs on DEV through the gateway |
-| 13 | **Agent artifacts + agent adapter** | declarative agent/API plugin generated into `agent/<name>/` (Agents Toolkit layout); `atk` adapter with `--env <target>`; OAuth registration documented; `doctor --for agents` | agent provisioned to DEV reaches IFS through the generated capability |
+| 13 | **Agent artifacts + agent adapter** | Baseline is the **proven path** (§6.1): a declarative agent with an API-plugin/OpenAPI action whose endpoint is the authenticated Power Automate HTTP trigger of the Phase 12 flow, using OAuthPluginVault with Entra delegated auth. Generated into `agent/<name>/` (Agents Toolkit layout); `atk` adapter with `--env <target>`; the plugin's server URL resolved per target from the deployed flow's trigger URL; `doctor --for agents` | agent provisioned to DEV reaches IFS through the generated capability, with the same request/response as the proven hand-built agent |
 | 14 | **Promotion and CI readiness** | managed solution versions, `promote` via Pipelines/`pac pipeline deploy`, agent version promotion, service-principal auth paths, release records | DEV → TEST promotion reproducible from CLI |
 | — | Recorder v2 (optional) | browser-driven capture | — |
 
@@ -239,12 +248,42 @@ deployed agent/capability and stays a separate project that this roadmap doesn't
 needs that feed back into the model are: validation-only operations, confirmation before write
 operations, and warning surfacing (`X-IFS-Accept-Warnings`).
 
+### 6.1 Proven runtime path (baseline for Phases 12–13)
+
+```text
+Declarative agent
+  -> API plugin / OpenAPI action         (auth: OAuthPluginVault, Entra delegated)
+  -> authenticated Power Automate HTTP trigger (accepts the user's Entra token)
+  -> Power Automate flow                 (the dispatcher, Phase 12)
+  -> IFS custom connector                (Phase 9 artifacts, Phase 10 deployment)
+  -> on-premises data gateway
+  -> IFS Cloud
+```
+
+The flow is **not** added as a native declarative-agent action. Microsoft's known issue about
+"Power Automate flows as actions in declarative agents" concerns that native mechanism, not an
+API plugin calling an HTTPS endpoint. This path was proven end to end, and the generators
+reproduce it rather than replace it. Re-check current documentation at Phase 13, and change course
+only if a limitation is shown to apply to this API-plugin → authenticated HTTP trigger pattern.
+
+What this means for the deployment model:
+- **The flow's HTTP trigger URL is deployment state.** It's created per environment when the
+  solution imports the flow. The plugin's OpenAPI `servers` URL is resolved per target at deploy
+  time, never committed to the package.
+- **OAuth registration is per environment.** The OAuthPluginVault reference (from `atk`
+  `oauth/register` or the Teams Developer Portal) and the Entra app registration whose token the
+  trigger accepts are organisation prerequisites, recorded in targets as references only.
+- **The trigger's authentication setting** ("who can trigger") is part of the flow source and is
+  validated in Phase 11.
+- **Order:** Phase 12 deploys the flow and records its trigger URL. Phase 13 provisions the agent
+  against it.
+
 ## 7. Assumptions to validate before Phase 10
 
-1. **How the existing declarative agent reaches Power Automate.** Microsoft lists "Power Automate
-   flows as declarative agent actions may not run reliably" as a known issue. Confirm whether
-   the proven path is an API plugin calling the custom connector or an HTTP-triggered flow, or a
-   Copilot Studio agent flow. This decides what Phase 13 generates.
+1. **Resolved (2026-11-20): how the agent reaches Power Automate.** It goes through the proven
+   path in §6.1: an API plugin to the authenticated HTTP trigger. Still to confirm at Phase 12:
+   whether the trigger URL stays stable across solution upgrades in the same environment (if not,
+   the agent must be re-provisioned on each flow deployment).
 2. **Gateway:** the custom connector's connection uses the on-premises data gateway, so creating
    connections stays manual per target.
 3. **Managed environments and licensing** for TEST/PROD (needed for Pipelines and Git integration).
