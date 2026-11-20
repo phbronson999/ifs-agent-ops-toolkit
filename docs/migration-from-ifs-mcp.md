@@ -162,3 +162,22 @@ mcp_server_port = 8001
 - **Pilot result** (`ifs-customer-orders`): 52 operations (header, lines via `$batch`, charges,
   7 actions, 16 functions, 26 lookups/reads) and 2 workflows. A re-draft is a no-op. Validation:
   0 errors, 0 warnings.
+
+## Phase 7: `doctor` v1 (capability-based readiness)
+
+`ifs-agent-ops doctor [--for <capability>]... [--all] [--offline] [--json]` (also the read-only MCP
+tool `doctor`) inspects the machine and reports PASS / WARN / FAIL / NOT REQUIRED per check, with a
+concrete fix for every problem. It never installs, signs in or changes anything. Exit code 1 means a
+requested capability has a FAIL.
+
+| Capability | Default | Checks |
+|---|---|---|
+| `toolkit` | yes | Python ≥ 3.11, virtual environment, toolkit install, pinned dependencies (`mcp < 2`, pydantic 2, PyYAML, truststore, httpx), Git, writable toolkit home |
+| `ifs` | yes | profile resolves and is complete, https, TLS setting, reachability with TLS verification (`--offline` skips it), sign-in state (refreshable sessions pass), OAuth callback port free |
+| `packages` | yes | `IFS_AGENT_OPS_PACKAGES`, discovery problems, package `.gitignore` (`*.raw.har`, `.ifs-agent-ops/`), git repository, every HAR file is a sanitized `record import`, metadata snapshots for recorded projections, operation validation errors |
+| `power-platform` | no | `pac` present and version, `pac auth` profile, `dotnet`; target checks arrive in Phase 10 |
+| `agents` | no | Node (20.19+ or 22.12+), Agents Toolkit CLI (`atk`); sign-in and environment checks arrive in Phase 13 |
+| `spfx` | no | Node presence; the SPFx toolchain itself is owned by consuming projects |
+
+On a fresh clone (no `.env`, no packages) the result is one FAIL ("copy .env.example to .env and
+set …") and one WARN (set `IFS_AGENT_OPS_PACKAGES` or `package init`), with exit code 1.
