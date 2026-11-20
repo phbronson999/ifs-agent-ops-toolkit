@@ -98,3 +98,14 @@ def test_excluded_call_cannot_also_be_a_step(pkg):  # noqa: F811
     data["excluded_calls"] = [{"call": "GetDefaults", "classification": "excluded", "reason": "x"}]
     rules = {f.rule for f in validate_capability(Capability.model_validate(data), load_operations(pkg))}
     assert "excluded-but-used" in rules
+
+
+def test_conditional_step_must_name_an_input(pkg):  # noqa: F811
+    service.draft(pkg)
+    data = copy.deepcopy(BASE)
+    data["steps"][0]["requires_input"] = "customer_no"
+    ok = {f.rule for f in validate_capability(Capability.model_validate(data), load_operations(pkg))}
+    assert "unknown-input" not in ok
+    data["steps"][0]["requires_input"] = "nope"
+    bad = {(f.where, f.rule) for f in validate_capability(Capability.model_validate(data), load_operations(pkg))}
+    assert ("step find", "unknown-input") in bad

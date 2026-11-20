@@ -120,6 +120,8 @@ def validate_capability(cap: Capability, ops: dict[str, Operation]) -> list[Find
             add(where, "role-mismatch", "warning", f"role write but operation kind is {op.kind}")
         if step.for_each and (step.for_each not in inputs or inputs[step.for_each].type != "list"):
             add(where, "bad-for-each", "error", f"for_each {step.for_each!r} is not a list input")
+        if step.requires_input and step.requires_input not in inputs:
+            add(where, "unknown-input", "error", f"requires_input {step.requires_input!r} is not an input")
 
         for sid in step.body_from:
             if sid not in position or position[sid] >= i:

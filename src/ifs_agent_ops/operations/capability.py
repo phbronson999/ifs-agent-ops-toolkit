@@ -98,6 +98,8 @@ class Step(_M):
     bindings: dict[str, Source] = Field(default_factory=dict, description='Target "body.X", "path.X", "filter.X" '
                                                                           'or "header.X" -> source')
     omit: list[str] = Field(default_factory=list, description="body fields removed from the seeded record")
+    requires_input: Optional[str] = Field(None, description="Run this step only when this (optional) input is "
+                                                            "supplied")
 
 
 class Output(_M):
