@@ -259,3 +259,15 @@ are human text, kept on re-draft and excluded from the hash. The drafter now kee
 placeholders.
 
 Capabilities gained `deferred` (scope deliberately left out of a revision) and `Output.description`.
+
+### Approval is not runtime validation (Phase 7b boundary)
+
+Operations and capabilities carry `runtime_validation`: a `status` (untested, conditional, validated or
+failed) and the `requirements` that runtime validation must prove. Approval never sets the status. The
+status is excluded from approval hashes, and runtime requirements never make an operation UNRESOLVED.
+`operation.review_notes` now means *technical model questions* only. `capability.review_notes` means
+*curation decisions*, and `capability.excluded_calls` classifies every observed web-client call the
+capability leaves out as `excluded`, `deferred` or `validate-at-runtime`.
+
+Executing capabilities against IFS (request rendering, step execution, composite records, response
+headers) is Phase 11 work, recorded in roadmap §6.3. It was not built in Phase 7b.

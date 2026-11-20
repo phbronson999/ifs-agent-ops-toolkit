@@ -4,7 +4,7 @@ This is the source of truth for the lifecycle architecture and the phased migrat
 `ifs-mcp-server-local-python`. `docs/migration-from-ifs-mcp.md` records what each completed
 phase changed; this document says where the project is going and in what order.
 
-Status at time of writing: Phases 0–7 merged; Phase 7b (capability curation) built, with the `create-customer-order` capability drafted and awaiting human review. Phase 8 starts only after that approval. The decisions recorded on 2026-11-20 are folded
+Status at time of writing: Phases 0–7 merged; Phase 7b (capability curation) built, with the `create-customer-order` capability (revision 3, evidence-based) awaiting human review. Phase 8 starts after human approval of the capability and its operations; runtime validation is not a precondition (§6.2). The decisions recorded on 2026-11-20 are folded
 in: the customer-order pilot, permanent package `name`, the reserved `.ifs-agent-ops/` folder,
 and the proven agent path as the Phase 13 baseline.
 
@@ -231,15 +231,74 @@ Results: PASS, WARN, FAIL, NOT REQUIRED (for the capability asked about).
 | 5 | **Workspace & packages** (merged) | packages, discovery, redacting import boundary | parity + import verification |
 | 6 | **Operation model v0** (merged) | pydantic model and JSON Schema; drafts from recordings plus metadata; IFS rule validators; approval status. **Pilot: customer-order create** (decided; the primary end-to-end proving scenario, and its real recordings are already imported); shop floor clockings becomes the second package. Adds stable logical IDs (operation id, `operationId` reservation) | drafts cover the recorded create-order flow; ids stable across re-drafts |
 | 7 | **Toolchain `doctor` v1** (small, independent) | capability-based checks for `toolkit`, `ifs` and `packages`; PP/agent checks report NOT REQUIRED until their phases | doctor output on a fresh clone is actionable |
-| 7b | **Capability curation: customer order** (review gate before any generator) | a new `Capability` model (separate from the observed `Workflow`), schema and validator ([operation-model.md](operation-model.md) §3); `create-customer-order` capability curated from the observed workflows: agent-facing inputs (document/user/agent), lookups and validation, defaults/derived/fixed values, user questions, `prepare` and `submit` actions, confirmation, meaningful outputs/warnings/errors; the canonical operations it uses reviewed and approved; the capability itself **approved by a human** | capability validates (every required canonical parameter of each write is bound; every referenced operation is approved); human approval recorded |
-| 8 | **Skill generator** | from **approved capabilities** (curated workflow, agent-visible inputs, questions, confirmation), with canonical operations for technical detail; writes into the package; replaces legacy `save_skill` defaults | generated skill describes the curated workflow, not the full IFS field surface; datetime contradiction gone |
+| 7b | **Capability curation: customer order** (human review gate before any generator; no runtime execution) | a new `Capability` model (separate from the observed `Workflow`), schema and validator ([operation-model.md](operation-model.md) §3); `create-customer-order` capability curated from the observed workflows: agent-facing inputs (document/user/agent), lookups and validation, defaults/derived/fixed values, user questions, `prepare` and `submit` actions, confirmation, meaningful outputs/warnings/errors; the canonical operations it uses reviewed and approved; observed calls not included are classified; runtime-validation requirements recorded; the capability itself **approved by a human** | capability validates (every required canonical parameter of each write is bound; every referenced operation is approved); human approval recorded; runtime status stays `untested` |
+| 8 | **Skill generator** | from **approved capabilities** (curated workflow, agent-visible inputs, questions, confirmation), with canonical operations for technical detail; a capability may still carry runtime-validation requirements, and generated artifacts are then marked *not deployment-validated*; writes into the package; replaces legacy `save_skill` defaults | generated skill describes the curated workflow, not the full IFS field surface; datetime contradiction gone |
 | 9 | **Connector generator** | as planned (§5a of the plan: select → prune → compatibility transforms → annotate → validate), selecting **only operations referenced by approved capabilities**; emits `power-platform/connector/*` and the **stable operationId map** | all checks pass; size report |
 | 10 | **Deployment foundations + Power Platform adapter v1** | `deploy.yaml` schema; targets in toolkit home; adapter interface (`plan`/`apply`/`status`); PP adapter for **solution + connector + environment variables + connection-reference placeholders** via `pac`; deployment settings file generation; manual-step checklist; `doctor --for power-platform` | deploy is idempotent to a DEV target (second run is a no-op); status shows drift |
-| 11 | **Validation runner** | target-based `validate`: static, `pac solution check`, runtime calls through the deployed connector/flow (read-only by default) | green on DEV |
+| 11 | **Validation runner** | target-based `validate`: static, `pac solution check`, runtime calls through the deployed connector/flow (read-only by default), and a **direct-to-IFS mode** that executes curated capability actions against a TEST target to prove their `runtime_validation` requirements (design notes in §6.3) | green on DEV; capability and operation `runtime_validation` status recorded from runs |
 | 12 | **Dispatcher generator + flow deployment** | dispatcher definition from **capability actions** (their inputs, steps, bindings, outputs), not a mirror of connector parameters; deployed as a solution component; turned on after import | flow runs on DEV through the gateway |
 | 13 | **Agent artifacts + agent adapter** | Baseline is the **proven path** (§6.1): a declarative agent with an API-plugin/OpenAPI action whose endpoint is the authenticated Power Automate HTTP trigger of the Phase 12 flow, using OAuthPluginVault with Entra delegated auth. Generated into `agent/<name>/` (Agents Toolkit layout); `atk` adapter with `--env <target>`; the plugin's server URL resolved per target from the deployed flow's trigger URL; `doctor --for agents` | agent provisioned to DEV reaches IFS through the generated capability, with the same request/response as the proven hand-built agent |
-| 14 | **Promotion and CI readiness** | managed solution versions, `promote` via Pipelines/`pac pipeline deploy`, agent version promotion, service-principal auth paths, release records | DEV → TEST promotion reproducible from CLI |
+| 14 | **Promotion and CI readiness** | only artifacts whose capability is runtime `validated` (or `conditional`, within its recorded scope) may be promoted; managed solution versions, `promote` via Pipelines/`pac pipeline deploy`, agent version promotion, service-principal auth paths, release records | DEV → TEST promotion reproducible from CLI |
 | — | Recorder v2 (optional) | browser-driven capture | — |
+
+### 6.2 Approval is not runtime validation
+
+Three states are tracked separately and never imply each other:
+
+| State | Question | Set by | Recorded in |
+|---|---|---|---|
+| Technical operation approval | Is this a technically correct canonical representation of the observed IFS operation and its metadata contract? | a human (`operations approve`) | `operation.approval` |
+| Capability approval | Is this the intentional and safe business contract downstream agents/applications may use? | a human (`capabilities approve`) | `capability.approval` |
+| Runtime validation | Has an implementation of it been executed against IFS (or a deployed target) successfully? | runtime validation runs (Phase 11) | `runtime_validation.status`: untested / conditional / validated / failed, plus `requirements` |
+
+Lifecycle with the existing phases:
+
+```text
+evidence (5)  -> canonical operations (6) -> technical approval (7b, human)
+              -> curated capability (7b)   -> capability approval (7b, human)
+              -> generators (8, 9, 12, 13)  -> generated artifacts: draft, not deployment-validated
+              -> runtime / environment validation (10, 11)
+              -> deployment readiness -> promotion (14)
+```
+
+Rules:
+- Approval never sets runtime status, and runtime status is excluded from approval hashes, so a
+  validation result can neither grant nor invalidate an approval.
+- Generator development may consume an approved capability that still carries runtime-validation
+  requirements. Its outputs are drafts that must not be promoted or deployed as production-ready
+  until runtime validation succeeds.
+- Uncertainty that belongs to runtime validation is recorded as a requirement. It doesn't block
+  technical approval, and it doesn't justify inventing an alternative call sequence ahead of evidence.
+
+### 6.3 Phase 11 design notes (learned in Phase 7b)
+
+The toolkit can't execute a canonical operation today. `IfsClient.request` and the MCP
+`call_protected_api` send a hand-built endpoint, body and headers, and discard response headers.
+For the direct-to-IFS mode, Phase 11 will likely need the following.
+
+Rendering a canonical operation into a request:
+- path keys: quoting by declared type, unquoted `null`, enum literals `Type'Member'`
+- parameter aliases (`Name=@Name` with the JSON value in the query string)
+- the IEEE754Compatible content type
+
+Executing a capability action step by step:
+- source resolution: input, item, config, fixed and earlier-step fields
+- `body_from` seeding and `omit`
+- `for_each`
+- executable composite records: a structured source kind, replacing descriptive `derived` text
+
+Responses:
+- headers preserved: ETag, Location, OData-EntityID, `X-IFS-*` warnings
+- response-field extraction, including bare-value responses
+
+Runs:
+- dry-run planning that shows every request, compared with the recorded requests
+- controlled execution, with writes enabled explicitly per run
+- target/environment awareness
+- run evidence stored locally (`.ifs-agent-ops/runs/`)
+- recording the outcome into `runtime_validation`
+
+This was proposed during Phase 7b and deliberately deferred to Phase 11.
 
 **Proving scenario: customer-order PDF → conversational validation → confirmation → IFS
 submission.** It runs on Phase 6's customer-order pilot, the Phase 7b curated

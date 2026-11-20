@@ -176,7 +176,7 @@ def validate_capability(cap: Capability, ops: dict[str, Operation]) -> list[Find
             add(f"output {o.name}", "unknown-step", "error", f"step {o.step!r} does not exist")
             continue
         op = ops.get(cap.steps[position[o.step]].operation)
-        if op and o.field not in op.response.fields:
+        if op and o.field not in op.response.fields and not (op.response.shape == "value" and o.field == "value"):
             add(f"output {o.name}", "unobserved-field", "warning",
                 f"{o.field} was not observed in {op.id} responses")
 
@@ -184,6 +184,11 @@ def validate_capability(cap: Capability, ops: dict[str, Operation]) -> list[Find
         _check_approval(cap, ops, add)
     for note in cap.review_notes:
         add("review", "open-question", "info", note)
+    for req in cap.runtime_validation.requirements:
+        add("runtime", "runtime-validation", "info", req)
+    for x in cap.excluded_calls:
+        if x.call in {s.operation.split(".")[-1] for s in cap.steps}:
+            add(f"excluded {x.call}", "excluded-but-used", "error", f"{x.call} is listed as excluded but a step uses it")
     return out
 
 
@@ -215,7 +220,8 @@ def _check_source(cap, step, i, target, src: Source, tobj, inputs, position, ops
             add(where, "bad-step-reference", "error", f"{target}: step {src.step!r} must be an earlier step")
             return
         src_op = ops.get(cap.steps[position[src.step]].operation)
-        if src_op and src.field not in src_op.response.fields:
+        if src_op and src.field not in src_op.response.fields \
+                and not (src_op.response.shape == "value" and src.field == "value"):
             add(where, "unobserved-field", "warning", f"{target}: {src.field} was not observed in {src_op.id} responses")
     elif src.kind == "config" and src.config not in cap.config:
         add(where, "unknown-config", "error", f"{target}: config {src.config!r} does not exist")

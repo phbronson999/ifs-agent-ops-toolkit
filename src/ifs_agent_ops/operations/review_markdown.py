@@ -17,7 +17,7 @@ from ifs_agent_ops.workspace.package import Package
 _LEVEL_TITLE = {"blocking": "Blocking (validation errors)", "open": "Open questions", "check": "Checks to confirm",
                 "info": "Information", "known": "Known web-client behaviour (excluded from the contract)"}
 _STATE_NOTE = {"BLOCKED": "validation errors; approval is refused",
-               "UNRESOLVED": "open technical questions recorded",
+               "UNRESOLVED": "open technical model questions recorded",
                "CHECK": "reviewer checks to confirm",
                "READY": "no open questions or checks",
                "APPROVED": "approved; approval current"}
@@ -50,12 +50,13 @@ def render_review_document(rs: dict, package_name: str) -> str:
            "## Review summary", "",
            f"- {s['operations']} operation(s): {states}",
            f"- {s['validation_errors']} validation error(s); {s['open_questions']} open question(s)", "",
-           "| Operation | Method | Status | Rev | State | Attention |", "|---|---|---|---|---|---|"]
+           "| Operation | Method | Status | Rev | State | Attention | Runtime validation |", "|---|---|---|---|---|---|---|"]
     for r in rs["operations"]:
         out.append(f"| [{r['name']}](#{_anchor(r['name'])}) | {r['method']} | {r['status']} | {r['revision']} | "
-                   f"**{r['state']}** | {_attention(r)} |")
-    out += ["", "States are derived from findings: BLOCKED (validation error), UNRESOLVED (open question), "
-            "CHECK (reviewer checks), READY (information only), APPROVED (current approval).", ""]
+                   f"**{r['state']}** | {_attention(r)} | {_runtime(r)} |")
+    out += ["", "States are derived from findings: BLOCKED (validation error), UNRESOLVED (open technical model "
+            "question), CHECK (reviewer checks), READY (information only), APPROVED (current approval). Runtime "
+            "validation is a separate status: approval never claims it.", ""]
 
     attention = [r for r in rs["operations"] if r["state"] in ("BLOCKED", "UNRESOLVED", "CHECK")]
     out += ["## Operations requiring attention", ""]
@@ -70,10 +71,18 @@ def render_review_document(rs: dict, package_name: str) -> str:
         out += [f"- {k['summary']} ({len(k['operations'])} operation(s))" for k in rs["shared_known_behaviour"]]
         out.append("")
 
-    out += ["## Operation summaries", ""]
+    carried = [(r, q) for r in rs["operations"] for q in r["runtime_validation"]["requirements"]]
+    out += ["## Runtime validation requirements carried forward (not part of technical approval)", ""]
+    out += [f"- `{r['name']}`: {q}" for r, q in carried] or ["_None._"]
+    out += ["", "## Operation summaries", ""]
     for r in rs["operations"]:
         out += _summary_md(r, package_name)
     return "\n".join(out)
+
+
+def _runtime(r: dict) -> str:
+    rv = r["runtime_validation"]
+    return rv["status"] + (f" ({len(rv['requirements'])})" if rv["requirements"] else "")
 
 
 def _group_lines(r: dict, levels=LEVELS) -> list[str]:
@@ -81,12 +90,18 @@ def _group_lines(r: dict, levels=LEVELS) -> list[str]:
     for level in levels:
         if level == "open":
             for q in r["open_questions"]:
-                lines.append(f"- **Open question:** {q}")
+                lines.append(f"- **Open technical model question:** {q}")
             continue
+        if level == "runtime":
+            for q in r["runtime_validation"]["requirements"]:
+                lines.append(f"- Runtime validation ({r['runtime_validation']['status']}): {q}")
         for g in r["finding_groups"]:
             if g["level"] != level:
                 continue
-            prefix = {"blocking": "**Blocking:** ", "check": "Check: ", "info": "", "known": "Known: "}[level]
+            if level == "runtime" and g["code"] == "runtime-validation":
+                continue
+            prefix = {"blocking": "**Blocking:** ", "check": "Check: ", "runtime": "Runtime validation: ", "info": "",
+                      "known": "Known: "}[level]
             lines.append(f"- {prefix}{g['summary']}")
             if g["count"] > 1 and g["subjects"]:
                 lines.append(f"  <details><summary>{len(g['subjects'])} field(s)</summary>{', '.join(g['subjects'])}"
@@ -162,6 +177,7 @@ def render_appendix(r: dict, package_name: str) -> str:
            f"| Path | `{r['path']}` |",
            f"| Entity type | {_cell(r['entity_type'])} |",
            f"| Status / revision | {r['status']} / {r['revision']} |",
+           f"| Runtime validation | {_runtime(r)} (separate from approval) |",
            f"| Approval | {_cell(r['approval'])}{'' if not r['approval'] or r['approval_current'] else ' (NOT current)'} |",
            f"| Content SHA-256 | `{r['content_sha256']}` |",
            f"| Connector operation id | {r['connector_operation_id']} |",

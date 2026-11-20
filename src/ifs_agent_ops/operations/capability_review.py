@@ -46,10 +46,11 @@ def render_review(cap: Capability, ops: dict[str, Operation], workflows: dict[st
          "",
          "> **What approval means:** this is the intentional and safe business contract that downstream "
          "agents and applications may use. Operation approval (technical correctness) is a separate, "
-         "earlier gate.",
+         "earlier gate. Neither approval claims runtime validation: that is tracked separately (section 12) "
+         "and is required before deployment or promotion, not before approval.",
          ""]
 
-    L += ["## 1. Decisions for the reviewer", ""]
+    L += ["## 1. Curation decisions for the reviewer (business/design questions)", ""]
     L += [f"{i}. {_md_escape(n)}" for i, n in enumerate(cap.review_notes, 1)] or ["_None recorded._"]
     if cap.deferred:
         L += ["", "**Deliberately out of scope for this revision** (agents must not offer it):", ""]
@@ -84,8 +85,15 @@ def render_review(cap: Capability, ops: dict[str, Operation], workflows: dict[st
     for s in cap.steps:
         op = ops.get(s.operation)
         state = f"{op.status}, rev {op.revision}" if op else "MISSING"
+        basis = ("observed in evidence" if any(st.operation == s.operation for wf in workflows.values()
+                                                 for st in wf.steps) else "curated (not observed in evidence)")
         L += [f"### `{s.id}` — {s.role}{' (for each ' + s.for_each + ')' if s.for_each else ''}", "",
-              f"Operation `{s.operation}` ({state}) — `{op.method + ' ' + op.path_template if op else '?'}`", ""]
+              f"Operation `{s.operation}` ({state}) — `{op.method + ' ' + op.path_template if op else '?'}` — "
+              f"basis: **{basis}**", ""]
+        assumed = [k for k, v in s.bindings.items() if v.kind == "derived"]
+        if assumed:
+            L += ["Assumption (requires runtime validation): " + ", ".join(
+                f"`{k}` is a derived value ({_md_escape(s.bindings[k].derived or '')})" for k in assumed), ""]
         if s.description:
             L += [_md_escape(s.description), ""]
         non_body = {k: v for k, v in s.bindings.items() if not k.startswith("body.")}
@@ -133,11 +141,22 @@ def render_review(cap: Capability, ops: dict[str, Operation], workflows: dict[st
         L.append(f"| `{op_id}` | {op.kind if op else '?'} | {op.status if op else 'MISSING'} | {op.revision if op else '-'} |")
 
     L += ["", "## 10. Evidence", ""] + [f"- `{e}`" for e in cap.evidence]
+    L += ["", "## 11. Observed web-client calls not included", ""]
+    if cap.excluded_calls:
+        L += ["| call | classification | reason |", "|---|---|---|"]
+        L += [f"| `{x.call}` | {x.classification} | {_md_escape(x.reason)} |" for x in cap.excluded_calls]
+    else:
+        L += ["_None recorded._"]
+    rv = cap.runtime_validation
+    L += ["", f"## 12. Runtime validation (separate from approval): **{rv.status}**", "",
+          "What must be proven by executing the curated sequence against IFS (Phase 11) before generated "
+          "artifacts can be considered deployment-validated. Approving the capability does not claim these.", ""]
+    L += [f"{i}. {_md_escape(q)}" for i, q in enumerate(rv.requirements, 1)] or ["_None recorded._"]
     L += ["", "---", "",
           "To approve, a human runs, in an interactive terminal:", "",
           f"```\nifs-agent-ops capabilities approve {cap.id} --package <package>\n```", "",
           "Approval records your name, the content hash and each operation's revision; any later change "
-          "invalidates it."]
+          "invalidates it. A later runtime-validation result does not."]
     return "\n".join(L) + "\n"
 
 

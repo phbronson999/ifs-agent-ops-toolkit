@@ -208,7 +208,7 @@ def test_review_report_is_local_and_complete(drafted, monkeypatch):
     save_capability(drafted, cap(review_notes=["Which site?"]))
     assert main(["capabilities", "review", "create-order", "--package", "ifs-orders"]) == 0
     report = (drafted.root / ".ifs-agent-ops" / "review" / "create-order.md").read_text(encoding="utf-8")
-    for section in ("## 1. Decisions for the reviewer", "Which site?", "## 3. Actions", "## 4. Agent-facing inputs",
+    for section in ("## 1. Curation decisions for the reviewer", "Which site?", "## 3. Actions", "## 4. Agent-facing inputs",
                     "## 7. Steps", "canonical body fields", "## 9. Operations used", "capabilities approve create-order"):
         assert section in report
     text = render_review(cap(), load_operations(drafted), load_workflows(drafted))

@@ -375,7 +375,9 @@ def cmd_capabilities(args: argparse.Namespace) -> int:
                 "capability", cap_id,
                 "Capability approval: this is the intentional and safe business contract that downstream "
                 "agents and applications may use. Approval pins this exact content and the revisions of "
-                "the operations it uses.")
+                "the operations it uses. It does NOT claim runtime validation: runtime status stays "
+                f"'{cap.runtime_validation.status}' with {len(cap.runtime_validation.requirements)} "
+                "requirement(s) carried forward.")
             if reviewer is None:
                 return 1
             approved = approve_capability(package, cap_id, reviewer)

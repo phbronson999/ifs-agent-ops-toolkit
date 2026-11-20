@@ -66,7 +66,7 @@ def test_open_questions_stay_visible_and_never_look_clean(pkg):  # noqa: F811
     single = _render(view.render_operation, r, "ifs-orders")
     assert "!! UNRESOLVED" in single and "! OPEN  standalone POST unproven" in single
     approval = _render(view.render_approval, r, "ifs-orders", "appendix.md")
-    assert "UNRESOLVED: 1 open technical question" in approval and "standalone POST unproven" in approval
+    assert "UNRESOLVED: 1 open technical model question" in approval and "standalone POST unproven" in approval
     assert "YOU ARE APPROVING" in approval and "YOU ARE NOT APPROVING" in approval
     assert "No open questions or checks" not in approval
 

@@ -23,8 +23,10 @@ STATE_STYLE = {"BLOCKED": "bold red", "UNRESOLVED": "bold yellow", "CHECK": "yel
                "APPROVED": "bold green"}
 # Markers carry the state without colour (NO_COLOR, redirected output).
 STATE_MARK = {"BLOCKED": "XX", "UNRESOLVED": "!!", "CHECK": "?", "READY": "-", "APPROVED": "ok"}
-LEVEL_STYLE = {"blocking": "bold red", "open": "bold yellow", "check": "yellow", "info": "dim", "known": "dim"}
-LEVEL_MARK = {"blocking": "x", "open": "!", "check": "?", "info": "-", "known": "-"}
+LEVEL_STYLE = {"blocking": "bold red", "open": "bold yellow", "check": "yellow", "runtime": "cyan", "info": "dim",
+               "known": "dim"}
+LEVEL_MARK = {"blocking": "x", "open": "!", "check": "?", "runtime": ">", "info": "-", "known": "-"}
+RUNTIME_STYLE = {"untested": "cyan", "conditional": "yellow", "validated": "green", "failed": "bold red"}
 LEVEL_TITLE = {"blocking": "BLOCKING", "open": "OPEN QUESTIONS", "check": "CHECKS TO CONFIRM", "info": "INFORMATION",
                "known": "KNOWN WEB-CLIENT BEHAVIOUR (excluded from the contract)"}
 DETAIL_LEVELS = ("summary", "details", "full")
@@ -50,6 +52,23 @@ def _box(console: Console):
 
 def _state_text(state: str) -> Text:
     return Text(f"{STATE_MARK[state]} {state}", style=STATE_STYLE[state])
+
+
+def _runtime_text(r: dict) -> Text:
+    rv = r["runtime_validation"]
+    n = len(rv["requirements"])
+    return Text(rv["status"] + (f" ({n})" if n else ""), style=RUNTIME_STYLE[rv["status"]])
+
+
+def _runtime_lines(r: dict, show_subjects: bool) -> list[Text]:
+    rv = r["runtime_validation"]
+    lines = [Text.assemble(("> ", LEVEL_STYLE["runtime"]), q) for q in rv["requirements"]]
+    for g in r["finding_groups"]:
+        if g["level"] == "runtime" and g["code"] != "runtime-validation":
+            lines.append(Text.assemble(("> ", LEVEL_STYLE["runtime"]), (g["summary"], "")))
+            if show_subjects and g["count"] > 1 and g["subjects"]:
+                lines.append(Text("    fields: " + ", ".join(g["subjects"]), style="dim"))
+    return lines
 
 
 def _attention_text(r: dict) -> Text:
@@ -108,7 +127,11 @@ def render_review_set(console: Console, rs: dict, package_name: str, detail: str
     for state, n in s["states"].items():
         if n:
             head.append(f"{n} {state}   ", style=STATE_STYLE[state])
-    head.append(f"\n{s['validation_errors']} validation error(s)   {s['open_questions']} open question(s)")
+    head.append(f"\n{s['validation_errors']} validation error(s)   {s['open_questions']} open technical model "
+                "question(s)")
+    runtime = ", ".join(f"{n} {st}" for st, n in s["runtime_status"].items() if n)
+    head.append(f"\nRuntime validation (separate from approval): {runtime}; {s['runtime_requirements']} "
+                "requirement(s) carried forward", style="cyan")
     console.print(Panel(head, box=_box(console), expand=False))
 
     table = Table(box=_box(console), show_lines=False, header_style="bold")
@@ -117,13 +140,15 @@ def render_review_set(console: Console, rs: dict, package_name: str, detail: str
     table.add_column("Status", no_wrap=True)
     table.add_column("State", no_wrap=True)
     table.add_column("Attention", overflow="fold", min_width=16)
+    table.add_column("Runtime", no_wrap=True)
     for r in rs["operations"]:
         risky = r["state"] in ("BLOCKED", "UNRESOLVED")
         table.add_row(Text(_wrap_name(r["name"]), style="bold" if risky else ""), f"{r['method']} {r['kind']}",
-                      f"{r['status']} r{r['revision']}", _state_text(r["state"]), _attention_text(r))
+                      f"{r['status']} r{r['revision']}", _state_text(r["state"]), _attention_text(r),
+                      _runtime_text(r))
     console.print(table)
-    console.print(Text("States are derived from findings: BLOCKED validation error | UNRESOLVED open question | "
-                       "CHECK reviewer checks | READY information only | APPROVED current approval.", style="dim"))
+    console.print(Text("States are derived from findings: BLOCKED validation error | UNRESOLVED open technical model question | "
+                       "CHECK reviewer checks | READY information only | APPROVED current approval. Runtime is separate.", style="dim"))
 
     order = {"BLOCKED": 0, "UNRESOLVED": 1, "CHECK": 2}
     attention = sorted((r for r in rs["operations"] if r["state"] in order),
@@ -140,7 +165,7 @@ def render_review_set(console: Console, rs: dict, package_name: str, detail: str
                                 else _box(console)))
     ready = [r["name"] for r in rs["operations"] if r["state"] in ("READY", "APPROVED")]
     if ready:
-        _heading(console, "NO OPEN QUESTIONS OR CHECKS")
+        _heading(console, "NO OPEN TECHNICAL MODEL QUESTIONS OR CHECKS")
         console.print(Text(", ".join(ready), style="green"))
     if rs["shared_known_behaviour"]:
         _heading(console, "OBSERVED WEB-CLIENT BEHAVIOUR EXCLUDED FROM CANONICAL CONTRACTS")
@@ -211,6 +236,11 @@ def render_operation(console: Console, r: dict, package_name: str, detail: str =
     if lines:
         _heading(console, "FINDINGS")
         for line in lines:
+            console.print(line)
+    runtime = _runtime_lines(r, show_subjects=detail != "summary")
+    if runtime:
+        _heading(console, f"RUNTIME VALIDATION ({r['runtime_validation']['status']}; not part of technical approval)")
+        for line in runtime:
             console.print(line)
 
     if detail in ("details", "full"):
@@ -336,7 +366,7 @@ def render_approval(console: Console, r: dict, package_name: str, report_path: s
         n = len(r["open_questions"])
         body = Text()
         if n:
-            body.append(f"UNRESOLVED: {n} open technical question{'s' if n != 1 else ''} remain"
+            body.append(f"UNRESOLVED: {n} open technical model question{'s' if n != 1 else ''} remain"
                         f"{'s' if n == 1 else ''}\n", style=LEVEL_STYLE["open"])
             for q in r["open_questions"]:
                 body.append(f"  ! {q}\n")
@@ -351,4 +381,11 @@ def render_approval(console: Console, r: dict, package_name: str, report_path: s
                             border_style=STATE_STYLE[r["state"]].replace("bold ", ""),
                             box=box.HEAVY if _box(console) is not box.ASCII else box.ASCII))
     else:
-        console.print(Text("No open questions or checks are recorded for this operation.", style="green"))
+        console.print(Text("No open technical model questions or checks are recorded for this operation.",
+                           style="green"))
+    runtime = _runtime_lines(r, show_subjects=False)
+    if runtime:
+        console.print(Text(f"\nRuntime validation stays {r['runtime_validation']['status']} after this approval. "
+                           "Carried forward:", style=LEVEL_STYLE["runtime"]))
+        for line in runtime:
+            console.print(line)

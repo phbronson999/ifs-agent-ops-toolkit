@@ -85,6 +85,8 @@ def validate_operation(op: Operation) -> list[Finding]:
         add("changed-since-approval", "error", "the definition changed after approval; review and approve again")
     for note in op.review_notes:
         add("open-question", "info", note)
+    for req in op.runtime_validation.requirements:
+        add("runtime-validation", "info", req)
     return out
 
 

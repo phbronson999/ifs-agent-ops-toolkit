@@ -3,7 +3,8 @@
 A ``Capability`` references canonical operations by id (it never copies or trims them) and
 declares, for every value a step sends, where the value comes from. It is authored and approved
 by a human. Approval means: *this is the intentional and safe business contract that downstream
-agents/applications may use.* That is distinct from operation approval (technical correctness).
+agents/applications may use.* That is distinct from operation approval (technical correctness)
+and from runtime validation (``runtime_validation``: has it been executed against IFS).
 
 See docs/operation-model.md §3. Stored as ``capabilities/<id>.yaml`` in a package.
 """
@@ -15,7 +16,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ifs_agent_ops.operations.model import SCHEMA_VERSION, Status
+from ifs_agent_ops.operations.model import SCHEMA_VERSION, RuntimeValidation, Status
 
 InputType = Literal["string", "decimal", "integer", "boolean", "date", "datetime", "list"]
 InputSource = Literal["agent", "document", "user"]
@@ -122,6 +123,15 @@ class ErrorRule(_M):
     include: Optional[str] = None
 
 
+class ExcludedCall(_M):
+    """A call the IFS web client made in the evidence that this capability does not include."""
+    call: str = Field(description="Operation or call name as observed")
+    classification: Literal["excluded", "deferred", "validate-at-runtime"] = Field(
+        description="excluded: evidence shows it is not needed; deferred: out of scope for this revision; "
+                    "validate-at-runtime: believed unnecessary, must be proven by runtime validation")
+    reason: str
+
+
 class CapabilityApproval(_M):
     approved_at: str
     approved_by: str
@@ -138,7 +148,8 @@ class Capability(_M):
     title: str
     description: str = ""
     evidence: list[str] = Field(default_factory=list, description="Observed workflows this was curated from")
-    review_notes: list[str] = Field(default_factory=list, description="Open questions for the human reviewer")
+    review_notes: list[str] = Field(default_factory=list, description="Curation questions: business/design "
+                                                                      "decisions needed before approval")
     deferred: list[str] = Field(default_factory=list, description="Scope deliberately left out of this revision "
                                                                   "(agents must not offer it)")
     config: dict[str, ConfigValue] = Field(default_factory=dict)
@@ -149,11 +160,16 @@ class Capability(_M):
     outputs: list[Output] = Field(default_factory=list)
     warnings: list[WarningRule] = Field(default_factory=list)
     errors: list[ErrorRule] = Field(default_factory=list)
+    excluded_calls: list[ExcludedCall] = Field(default_factory=list)
+    runtime_validation: RuntimeValidation = Field(default_factory=RuntimeValidation,
+                                                  description="Runtime evidence still needed; approval does not "
+                                                              "claim it")
     approval: Optional[CapabilityApproval] = None
 
     def content_hash(self) -> str:
-        """Hash of everything a reviewer approves (status/approval bookkeeping excluded)."""
-        data = self.model_dump(mode="json", exclude={"status", "approval"})
+        """Hash of everything a reviewer approves (status, approval and runtime results excluded)."""
+        data = self.model_dump(mode="json", exclude={"status": True, "approval": True,
+                                                     "runtime_validation": {"status"}})
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
     def all_inputs(self) -> dict[str, Input]:

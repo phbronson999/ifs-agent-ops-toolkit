@@ -138,21 +138,24 @@ def _add(target: dict, key: str, value: str) -> None:
 #   blocking  validation error; approval is refused
 #   open      an open technical question recorded on the operation (review_notes)
 #   check     something the reviewer must consciously confirm (validator warnings, review checks)
+#   runtime   must be proven by runtime validation; not a doubt about the canonical model
 #   info      informational validator findings
 #   known     classified web-client behaviour, excluded from the canonical contract
-LEVELS = ("blocking", "open", "check", "info", "known")
+LEVELS = ("blocking", "open", "check", "runtime", "info", "known")
 _VALIDATOR_LEVEL = {"error": "blocking", "warning": "check", "info": "info"}
 
 # States, derived only from findings and approval data (never from a judgement):
 #   BLOCKED     at least one blocking finding
 #   APPROVED    approved, approval current, nothing blocking
-#   UNRESOLVED  at least one open question
+#   UNRESOLVED  at least one open technical model question
+# Runtime-validation requirements never change the state: approval and runtime validation are separate.
 #   CHECK       reviewer checks to confirm, no open questions
 #   READY       only informational or known findings
 STATES = ("BLOCKED", "UNRESOLVED", "CHECK", "READY", "APPROVED")
 
 NOT_APPROVING = ["agent exposure", "connector exposure", "every field as agent input", "business authorization",
-                 "capability use"]
+                 "capability use", "runtime validation (the operation is not claimed to have been executed "
+                 "outside the recorded context)"]
 
 GROUP_SUMMARY = {
     "numeric-as-string": "{n} decimal field(s) observed using IEEE754Compatible string serialization; callers "
@@ -161,8 +164,8 @@ GROUP_SUMMARY = {
     "datetime-zone": "{n} Edm.DateTimeOffset field(s): confirm how IFS interprets the time zone.",
     "null-unquoted-key": "{n} quoted string key(s) were sent as an unquoted null; callers must emit null "
                          "without quotes.",
-    "composite-parameter": "{n} composite IFS structure(s); required members and their sources must be "
-                           "proven before a caller can build them.",
+    "composite-parameter": "{n} composite IFS structure(s): the metadata type is modelled; which members a "
+                           "caller must supply is a runtime-validation question.",
     "client-prefer-header": "Prefer wait header sent by the IFS web client (client behaviour, excluded from "
                             "the API contract).",
     "required-not-observed": "{n} required parameter(s) never observed in a recording.",
@@ -190,14 +193,14 @@ def _review_checks(op: Operation, model: Optional[EdmxModel], obs: dict) -> list
                                 f"{p.name} is an enum key; send the fully qualified literal "
                                 f"{p.type.enum}'<Member>', not a bare string.", p.name))
         if _structure(model, p.type.edm if p.type else None):
-            out.append(_finding("review", "composite-parameter", "check",
-                                f"{p.name} is a composite IFS structure; its required members and their sources "
-                                "must be proven before a caller can build it.", p.name))
+            out.append(_finding("review", "composite-parameter", "runtime",
+                                f"{p.name} is a composite IFS structure (type modelled from metadata); which "
+                                "members a caller must supply is proven only by runtime validation.", p.name))
     for b in op.body:
         if _structure(model, b.type.edm if b.type else None):
-            out.append(_finding("review", "composite-parameter", "check",
-                                f"body {b.name} is a composite IFS structure; its required members and their "
-                                "sources must be proven before a caller can build it.", b.name))
+            out.append(_finding("review", "composite-parameter", "runtime",
+                                f"body {b.name} is a composite IFS structure (type modelled from metadata); which "
+                                "members a caller must supply is proven only by runtime validation.", b.name))
         if b.type and b.type.edm == "Edm.DateTimeOffset" and b.observed:
             out.append(_finding("review", "datetime-zone", "check",
                                 f"body {b.name} is Edm.DateTimeOffset, observed as {', '.join(b.observed)}; "
@@ -283,7 +286,8 @@ def build_operation_review(package: Package, op: Operation, ops: dict[str, Opera
     capabilities = capabilities or {}
     obs = _observations(package, op, cache)
     et = model.entity_types.get(op.entity_type or "") if model else None
-    findings = [_finding("validator", f.rule, "open" if f.rule == "open-question" else _VALIDATOR_LEVEL[f.severity],
+    special = {"open-question": "open", "runtime-validation": "runtime"}
+    findings = [_finding("validator", f.rule, special.get(f.rule) or _VALIDATOR_LEVEL[f.severity],
                          f.message, f.subject) for f in validate_operation(op)]
     findings += _review_checks(op, model, obs)
     approval_current = bool(op.approval and op.approval.revision == op.revision and
@@ -354,6 +358,8 @@ def build_operation_review(package: Package, op: Operation, ops: dict[str, Opera
         "used_by": [{"capability": u["capability"], "capability_status": u["capability_status"], "step": u["step"],
                      "role": u["role"]} for u in usage],
         "open_questions": list(op.review_notes),
+        "runtime_validation": {"status": op.runtime_validation.status,
+                               "requirements": list(op.runtime_validation.requirements)},
         "findings": findings,
         "finding_groups": group_findings(findings),
         "meaning": MEANING,
@@ -381,6 +387,9 @@ def build_review_set(reviews: list[dict], capability: Optional[Any] = None) -> d
             "states": {s: sum(r["state"] == s for r in reviews) for s in STATES},
             "validation_errors": sum(r["attention"]["blocking"] for r in reviews),
             "open_questions": sum(r["attention"]["open"] for r in reviews),
+            "runtime_status": {st: sum(r["runtime_validation"]["status"] == st for r in reviews)
+                               for st in ("untested", "conditional", "validated", "failed")},
+            "runtime_requirements": sum(len(r["runtime_validation"]["requirements"]) for r in reviews),
         },
         "shared_known_behaviour": sorted(shared.values(), key=lambda s: s["code"]),
         "operations": reviews,

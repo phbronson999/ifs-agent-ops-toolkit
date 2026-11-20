@@ -106,7 +106,7 @@ def merge_draft(package: Package, drafted_ops: dict[str, Operation], drafted_wfs
         merged = new.model_copy(update={
             "connector_operation_id": old.connector_operation_id, "title": old.title,
             "description": old.description, "status": old.status, "approval": old.approval,
-            "review_notes": old.review_notes,
+            "review_notes": old.review_notes, "runtime_validation": old.runtime_validation,
             "revision": old.revision + (1 if old.derived() != new.derived() else 0),
         })
         if merged.model_dump() == old.model_dump():
