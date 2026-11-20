@@ -96,6 +96,11 @@ async def handler(filename: str, content: str) -> str:
 
     if is_update:
         old_content = dest_path.read_text(encoding="utf-8")
+        from ifs_agent_ops.generators.skills import is_generated
+
+        if is_generated(old_content):
+            return json.dumps({"error": f"{filename} is generated from an approved capability and cannot be edited "
+                                        "here; change the capability and run `ifs-agent-ops skills generate`"})
         change_summary = _build_change_summary(old_content, content)
 
     dest_path.write_text(content, encoding="utf-8")

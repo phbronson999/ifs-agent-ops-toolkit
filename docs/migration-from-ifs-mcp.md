@@ -293,3 +293,39 @@ headers) is Phase 11 work, recorded in roadmap §6.3. It was not built in Phase 
   file (comments, flow mappings, folded text) is untouched. The patched text is re-parsed and compared
   with the intended model before it is written; if they differ, the full serialiser is used instead.
   Content hashes are computed on the parsed model, so formatting never changes identity.
+
+## Phase 8: skill generator
+
+`ifs-agent-ops skills generate [<capability>] --package <p> [--check] [--output json]` writes
+`<package>/agent/skills/<capability>.md` from an **approved** capability whose approval is current. Drafts
+and stale approvals are refused. Generation is deterministic and offline (`generators/skills.py`): no
+timestamps, no LLM and no IFS calls. `--check` writes nothing and exits 1 when a skill is missing or
+stale, for CI.
+
+The skill is built from the capability. It reads operations only for technical detail and never lists
+their full field surface.
+
+For the agent:
+- what to collect, and where each input comes from
+- organisation settings, which are never asked for
+- values never supplied (defaults, terms, prices, totals and cost come from IFS)
+- the questions to ask
+- the `prepare` / confirmation / `submit` flow
+- results, warnings and errors
+- out-of-scope items
+
+For implementers and reviewers:
+- the curated steps per action, with operation revisions and calls
+- the values each step sends
+- request rules established from evidence: headers, date formats, aliases, enum literals, unquoted nulls
+- runtime-validation status and requirements (*not deployment-validated* while untested)
+- provenance: capability revision and hash, approval, operation revisions, evidence
+
+Generated skills carry a marker. `skills generate` never overwrites a hand-written file, and the MCP
+`save_skill` tool refuses to overwrite a generated one. Generated skills are served like any package
+skill (`ifs://<capability>/guide`).
+
+**Intentional difference (re-baselined):** the authoring guide's universal "no `Z` on write datetimes"
+rule contradicted the customer-order evidence. It now says the format is operation-specific, with the
+recorded examples for shop floor clocking (no suffix) and customer order (`Z`, with the date
+preserved). Only the `get_api_guide_skill-authoring` snapshot changed.

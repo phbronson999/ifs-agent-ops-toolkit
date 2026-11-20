@@ -462,6 +462,35 @@ def cmd_capabilities(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_skills(args: argparse.Namespace) -> int:
+    """Generate agent skills from approved capabilities (deterministic; writes into the package)."""
+    import json
+
+    from ifs_agent_ops.generators.skills import generate
+    from ifs_agent_ops.workspace.discovery import find_package
+    from ifs_agent_ops.workspace.package import PackageError
+
+    try:
+        package = find_package(args.package)
+        results = generate(package, args.capability, check=args.check)
+    except (PackageError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.output == "json":
+        print(json.dumps({"schema": "ifs-agent-ops/skill-generation", "schema_version": 1, "package": package.name,
+                          "check": args.check, "results": [{"capability": r.capability, "path": str(r.path),
+                                                            "action": r.action, "message": r.message}
+                                                           for r in results]}, indent=2))
+    else:
+        for r in results:
+            print(f"{r.action:<12} {r.capability:<32} {r.path}" + (f"\n             {r.message}" if r.message else ""))
+        if not results:
+            print(f"{package.name} has no capabilities")
+    failed = any(r.action == "refused" for r in results)
+    stale = args.check and any(r.action.startswith("would-") for r in results)
+    return 1 if failed or stale else 0
+
+
 def _add_output(parser: argparse.ArgumentParser) -> None:
     """Output contract: human text by default; --output json is the structured result for automation."""
     parser.add_argument("--output", choices=["text", "json"], default="text",
@@ -564,6 +593,14 @@ def main(argv: Optional[list[str]] = None) -> int:
             _add_output(sp)
     caps.add_parser("schema", help="print the JSON Schema of capabilities")
 
+    skl = sub.add_parser("skills", help="agent skills generated from approved capabilities").add_subparsers(
+        dest="skills_command", required=True)
+    s_gen = skl.add_parser("generate", help="generate <package>/agent/skills/<capability>.md from approved capabilities")
+    s_gen.add_argument("capability", nargs="?", help="capability id (default: every capability in the package)")
+    s_gen.add_argument("--package", required=True)
+    s_gen.add_argument("--check", action="store_true", help="write nothing; exit 1 if a skill is missing or stale")
+    _add_output(s_gen)
+
     args = parser.parse_args(argv)
     load_env()
 
@@ -577,6 +614,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_operations(args)
     if args.command == "capabilities":
         return cmd_capabilities(args)
+    if args.command == "skills":
+        return cmd_skills(args)
 
     if args.version:
         try:

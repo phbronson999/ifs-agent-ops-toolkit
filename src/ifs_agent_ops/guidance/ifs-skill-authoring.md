@@ -155,15 +155,20 @@ Note: the browser sends all numbers as strings due to `IEEE754Compatible=true`. 
 
 ### DateTime fields in write actions
 
-IFS write actions (POST/PATCH) that accept date/time values require **local server time without any timezone suffix** — e.g. `"2026-05-18T10:00:00"`. Do **not** append `Z` or any UTC offset (`+00:00`, `-05:00`, etc.).
+The time-zone format IFS accepts for a date/time value in a write body is **specific to the operation**.
+No single rule covers every operation, so use what the evidence shows for that operation:
 
-IFS compares the submitted value against the database server's local clock directly. Sending a `Z`-suffixed string causes IFS to treat the value as if it were local time but shifted by the UTC offset, making it appear to be in the future — this triggers errors like `WRNGSTARTTIME: Start Time for a clocking cannot be a future time`.
+| Evidence | Format accepted |
+|---|---|
+| Shop floor clocking actions (`StartTime`, `StopTime`, `FinishTime`) | Local server time with **no** suffix: `"2026-05-18T10:00:00"`. A `Z` value is compared with the server's local clock as if it were local time, which triggers `WRNGSTARTTIME: Start Time for a clocking cannot be a future time`. |
+| Customer order header and line `WantedDeliveryDate` | `"2026-05-18T00:00:00Z"`. IFS stored the same calendar date (server trace and read-back). |
 
-Query responses return timestamps in UTC with a `Z` suffix — the no-suffix rule applies **only to write request bodies**.
+Canonical operations record the format each write field was observed with (validator rule
+`write-datetime-format`), and skills generated from approved capabilities state the format for each
+step. Query responses return timestamps in UTC with a `Z` suffix.
 
-When documenting time fields in a skill, use this note:
-
-> `StartTime` / `StopTime` / `FinishTime` must be local server time with no timezone suffix: `"2026-05-18T10:00:00"`. Do not use `Z` or UTC offsets in POST bodies.
+When documenting a time field in a skill, state the format recorded for that operation. Don't copy a
+rule from another operation.
 
 ---
 
