@@ -1,0 +1,4 @@
+{
+  "output": "{\n  \"s1\": {\n    \"access_token\": \"a1\",\n    \"refresh_token\": \"r1\",\n    \"expires_at\": 1800003600000,\n    \"user_id\": \"s1\"\n  },\n  \"s2\": {\n    \"access_token\": \"a2\",\n    \"refresh_token\": null,\n    \"expires_at\": 1800000000000,\n    \"user_id\": \"s2\"\n  }\n}",
+  "requests": []
+}

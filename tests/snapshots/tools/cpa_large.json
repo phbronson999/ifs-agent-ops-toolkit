@@ -1,0 +1,14 @@
+{
+  "output": "{\n  \"_instruction\": \"The query returned 1500 records which is too large to display. Present the options below to the user in a friendly, conversational way. Don't list them robotically \\u2014 weave them into a natural response. Mention the record count and a couple of interesting fields from the sample record to give context.\",\n  \"total_records\": 1500,\n  \"available_fields\": [\n    \"Field0\",\n    \"Field1\",\n    \"Field2\",\n    \"Field3\",\n    \"Field4\",\n    \"Field5\",\n    \"Field6\",\n    \"Field7\"\n  ],\n  \"sample_record\": {\n    \"Field0\": \"value-00000-0\",\n    \"Field1\": \"value-00000-1\",\n    \"Field2\": \"value-00000-2\",\n    \"Field3\": \"value-00000-3\",\n    \"Field4\": \"value-00000-4\",\n    \"Field5\": \"value-00000-5\",\n    \"Field6\": \"value-00000-6\",\n    \"Field7\": \"value-00000-7\"\n  },\n  \"options\": {\n    \"preview\": \"Show a preview: re-run with $top=N (e.g., $top=10) to see the first few records.\",\n    \"filter\": \"Narrow it down: add $filter on fields like Field0, Field1, Field2 to find specific records.\",\n    \"select_fields\": \"Slim the columns: use $select to return only the fields they care about (e.g., $select=Field0,Field1,Field2).\",\n    \"export\": \"Save it all: use export_api_data to download all 1500 records as a CSV file to their Downloads folder.\"\n  },\n  \"endpoint_used\": \"/main/ifsapplications/projection/v1/Demo.svc/ThingSet\"\n}",
+  "requests": [
+    {
+      "body": "",
+      "headers": {
+        "accept": "application/json;odata.metadata=full;IEEE754Compatible=true",
+        "authorization": "Bearer test-token"
+      },
+      "method": "GET",
+      "url": "https://example.ifs.cloud/main/ifsapplications/projection/v1/Demo.svc/ThingSet"
+    }
+  ]
+}

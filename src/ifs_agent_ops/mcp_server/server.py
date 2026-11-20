@@ -14,8 +14,7 @@ import mcp.types as mcp_types
 from mcp.server.fastmcp import FastMCP
 
 from ifs_agent_ops.config import get_mcp_server_port
-from ifs_agent_ops.ifs.auth.oauth_manager import oauth_manager
-from ifs_agent_ops.ifs.auth.session_manager import initialize_token_store
+from ifs_agent_ops.mcp_server.runtime import Runtime
 from ifs_agent_ops.mcp_server.resources.index import get_resources
 from ifs_agent_ops.mcp_server.prompts.build_ifs_skill_guide import (
     projection_definition, projection_handler,
@@ -25,7 +24,7 @@ from ifs_agent_ops.mcp_server.prompts.build_ifs_skill_guide import (
 
 # ── Boot ─────────────────────────────────────────────────────────────────────
 
-initialize_token_store()
+runtime = Runtime.from_env()  # loads persisted sessions, as initialize_token_store() did
 
 # ── FastMCP server ────────────────────────────────────────────────────────────
 
@@ -78,14 +77,14 @@ async def _get_prompt(name: str, arguments: dict[str, str] | None) -> mcp_types.
 async def start_oauth(force: bool = False) -> str:
     """Start OAuth 2.0 authentication flow — opens a login window in the browser. Call this automatically whenever an API tool returns an authentication_required error or session expiry. Do not ask the user to trigger this manually."""
     from ifs_agent_ops.mcp_server.tools.auth.start_oauth import handler
-    return await handler(force, oauth_manager)
+    return await handler(force, runtime.auth, runtime.store)
 
 
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
 async def get_session_info() -> str:
     """Get information about the current saved session, including session ID and expiration status."""
     from ifs_agent_ops.mcp_server.tools.auth.get_session_info import handler
-    return await handler()
+    return await handler(runtime.store)
 
 
 # ── API tools ─────────────────────────────────────────────────────────────────
@@ -100,7 +99,7 @@ async def call_protected_api(
 ) -> str:
     """Call a protected IFS Cloud API endpoint using an authenticated session. IFS Cloud projection names, endpoint paths, key fields, and OData filter syntax are non-standard and vary per customer configuration. Guessing them will produce 404 errors or silently return wrong data. You MUST call get_api_guide first to get the correct endpoint and query pattern for the workflow — do not skip this step even if you think you know the endpoint. Do NOT call $metadata, probe unknown paths, or construct endpoints from scratch. If get_api_guide returns no matching guide, stop and tell the user: 'I don't have a skill for that workflow yet. Please perform this action in IFS Cloud in your browser, then export a HAR file from DevTools (Network tab → right-click → Save all as HAR with content) and use the build_ifs_skill_guide prompt to create a skill for it.' If the response contains error 'authentication_required', immediately call start_oauth — do not relay the error to the user or ask them to authenticate manually. If no session_id is provided, uses the most recent saved session. Use headers to pass If-Match (ETag) for PATCH/DELETE/bound actions."""
     from ifs_agent_ops.mcp_server.tools.api.call_protected_api import handler
-    return await handler(endpoint, method, session_id, body, headers, oauth_manager)
+    return await handler(endpoint, method, session_id, body, headers, runtime.client)
 
 
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
@@ -120,7 +119,7 @@ async def export_api_data(
 ) -> str:
     """Export large API result sets to a CSV file. Fetches data in batches of 100 records using $top/$skip pagination and saves to the path set in IFS_MCP_EXPORT_DIR env var, otherwise ~/.ifs-mcp/exports/. Use this when call_protected_api returns a 'Response too large' warning."""
     from ifs_agent_ops.mcp_server.tools.api.export_api_data import handler
-    return await handler(endpoint, method, filename, session_id, body, oauth_manager)
+    return await handler(endpoint, method, filename, session_id, body, runtime.client)
 
 
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True))
@@ -166,7 +165,7 @@ async def get_projection_enum_map(
 ) -> str:
     """Parse a projection's $metadata XML and return resolved enum definitions for its entity sets. Use this when authoring $filter expressions for enum fields — IFS Cloud requires the fully qualified enum type name (e.g. IfsApp.CustomerOrderHandling.CustomerOrderState'Released'). Pass projection_name (e.g. 'CustomerOrderHandling'). Pass entity_set to filter to a single entity set and keep the response small (recommended). Reference_ sets are excluded by default; set include_reference_sets=true to include them."""
     from ifs_agent_ops.mcp_server.tools.api.get_projection_enum_map import handler
-    return await handler(projection_name, entity_set, include_reference_sets, oauth_manager)
+    return await handler(projection_name, entity_set, include_reference_sets, runtime.client)
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

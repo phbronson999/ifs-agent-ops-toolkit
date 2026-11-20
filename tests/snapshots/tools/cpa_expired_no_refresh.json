@@ -1,0 +1,5 @@
+{
+  "output": "{\n  \"error\": \"authentication_required\",\n  \"status\": null,\n  \"message\": \"No refresh token available\",\n  \"details\": null\n}",
+  "requests": [],
+  "session_file_after": "{\n  \"s1\": {\n    \"access_token\": \"a1\",\n    \"refresh_token\": null,\n    \"expires_at\": 1799999999000,\n    \"user_id\": \"s1\"\n  }\n}"
+}

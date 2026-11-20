@@ -1,0 +1,4 @@
+{
+  "output": "{\n  \"status\": \"already_authenticated\",\n  \"message\": \"You already have an active session\",\n  \"sessionId\": \"s1\",\n  \"expiresInMinutes\": 60,\n  \"hint\": \"Use force=True to re-authenticate\"\n}",
+  "requests": []
+}

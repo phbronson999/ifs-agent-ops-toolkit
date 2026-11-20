@@ -1,0 +1,14 @@
+{
+  "output": "{\n  \"error\": \"API call failed\",\n  \"status\": 302,\n  \"message\": \"moved\",\n  \"details\": null\n}",
+  "requests": [
+    {
+      "body": "",
+      "headers": {
+        "accept": "application/json;odata.metadata=full;IEEE754Compatible=true",
+        "authorization": "Bearer test-token"
+      },
+      "method": "GET",
+      "url": "https://example.ifs.cloud/main/ifsapplications/projection/v1/Demo.svc/ThingSet"
+    }
+  ]
+}

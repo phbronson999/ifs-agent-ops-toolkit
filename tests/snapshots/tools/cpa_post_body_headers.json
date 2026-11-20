@@ -1,0 +1,16 @@
+{
+  "output": "{\n  \"status\": 201,\n  \"data\": {\n    \"Id\": 7\n  }\n}",
+  "requests": [
+    {
+      "body": "{\"Name\":\"x\"}",
+      "headers": {
+        "accept": "application/json;odata.metadata=full;IEEE754Compatible=true",
+        "authorization": "Bearer test-token",
+        "content-type": "application/json",
+        "if-match": "W/\"1\""
+      },
+      "method": "POST",
+      "url": "https://example.ifs.cloud/main/ifsapplications/projection/v1/Demo.svc/ThingSet"
+    }
+  ]
+}
