@@ -100,3 +100,28 @@ mcp_server_port = 8001
 - Sanitizing keeps business data values and host names; review before sharing outside the organisation.
 - Optional local parity check on real recordings:
   `IFS_LEGACY_SRC=<legacy src> IFS_REAL_HAR_DIR=<har folder> pytest tests/test_real_har_parity.py`
+
+## Phase 5: workspace, packages and the evidence boundary
+
+- **Packages** (`workspace/package.py`): `package.yaml` (name, version, description,
+  projections, ifs_release, `evidence.redact_values`) plus the layout `recordings/`, `metadata/`,
+  `operations/`, `workflows/`, `agent/skills|instructions/`, `power-platform/connector/`,
+  `dispatcher/`. `ifs-agent-ops package init|list`.
+- **Discovery** (`workspace/discovery.py`): `IFS_AGENT_OPS_PACKAGES`. Skills are served from
+  packages; `SKILLS_DIR` remains as a higher-precedence legacy override. With only `SKILLS_DIR`
+  set the resource order and `get_api_guide` results are exactly the legacy ones (snapshotted).
+- **Guidance** moved to `ifs_agent_ops/guidance/`; the bundled skills moved to the
+  `ifs-customer-orders` and `ifs-shop-floor-clockings` package repos (copies kept as test fixtures).
+- **Import boundary** (`ifs-agent-ops record import`): raw HAR -> `sanitize` -> host
+  normalisation (`ifs.example`) -> `redact-values` (package default; `--keep-values` opts out) ->
+  verification -> `recordings/<workflow>/<task>.har` + `.annotations.yaml`. The import is refused
+  if the call sequence or any data-flow link differs from the raw recording, or a real host remains.
+  Raw files are never copied into a package.
+- **Value redaction** (`recordings/redact.py`) keeps identity (same value -> same pseudo-value,
+  never equal to any original), shape (digit/letter/punctuation; ISO date/time `T`/`Z`/offset kept)
+  and JSON types. Structural values are kept: field names, enum members (`<field>@odata.type =
+  #IfsApp...`, propagated to every occurrence), `luname`, `IfsApp...'Member'` literals, ETags.
+  Key values inside `@odata.context`/`@odata.id`/`...Link`, URL paths and fragments (IFS web routes),
+  `$expand` nested filters, URL-bearing headers and keyrefs are redacted consistently.
+- Known limitation: short all-digit business values can coincide with HTTP sizes or trace
+  timings (e.g. a 4-digit customer number equal to a `content-length`); these are not leaks.

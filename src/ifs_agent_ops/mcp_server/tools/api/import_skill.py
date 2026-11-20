@@ -14,7 +14,9 @@ def _get_resources_dir() -> Path:
     skills_dir = get_skills_dir()
     if skills_dir:
         return Path(skills_dir).resolve()
-    return Path(__file__).parent.parent.parent / "resources"
+    from ifs_agent_ops.mcp_server.resources.index import GUIDANCE_DIR
+
+    return GUIDANCE_DIR  # legacy fallback: the bundled guide folder
 
 
 async def _fetch_https(url: str) -> str:

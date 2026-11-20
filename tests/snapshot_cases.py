@@ -52,6 +52,8 @@ MODULES = {
         "session_manager": "ifs_mcp_server.lib.auth.session_manager",
         "token_store": "ifs_mcp_server.lib.auth.token_store",
         "oauth_manager": "ifs_mcp_server.lib.auth.oauth_manager",
+        "resources": "ifs_mcp_server.resources.index",
+        "get_api_guide": "ifs_mcp_server.tools.api.get_api_guide",
     },
     "new": {
         "har": "ifs_agent_ops.analysis.har_legacy",
@@ -62,6 +64,8 @@ MODULES = {
         "export": "ifs_agent_ops.mcp_server.tools.api.export_api_data",
         "session_info": "ifs_agent_ops.mcp_server.tools.auth.get_session_info",
         "start_oauth": "ifs_agent_ops.mcp_server.tools.auth.start_oauth",
+        "resources": "ifs_agent_ops.mcp_server.resources.index",
+        "get_api_guide": "ifs_agent_ops.mcp_server.tools.api.get_api_guide",
     },
 }
 
@@ -128,8 +132,13 @@ def _patched(*triples):
 
 @contextlib.contextmanager
 def _env(**values):
+    """Set (or, with value None, unset) environment variables for the duration."""
     saved = {k: os.environ.get(k) for k in values}
-    os.environ.update({k: v for k, v in values.items()})
+    for k, v in values.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
     try:
         yield
     finally:
@@ -199,6 +208,11 @@ class PatchAdapter:
     def session_file_text(self) -> str:
         return self._session_file.read_text(encoding="utf-8") if self._session_file.exists() else ""
 
+    def skills_env(self) -> dict:
+        """Legacy layout: skills in <package>/skills, found through SKILLS_DIR."""
+        skills = Path(self.m("resources").__file__).resolve().parents[1] / "skills"
+        return {"SKILLS_DIR": str(skills), "IFS_AGENT_OPS_PACKAGES": None}
+
 
 class _FakeProvider:
     """TokenProvider double for the injected client (mirrors _FakeOAuth + patched session id)."""
@@ -266,7 +280,30 @@ class InjectAdapter:
         return self._session_file.read_text(encoding="utf-8") if self._session_file.exists() else ""
 
 
+    def skills_env(self) -> dict:
+        """Toolkit layout: skills come from operation packages (test fixtures), not SKILLS_DIR."""
+        return {"SKILLS_DIR": None, "IFS_AGENT_OPS_PACKAGES": str(FIXTURES / "packages")}
+
+
 ADAPTERS = {"legacy": PatchAdapter, "new": InjectAdapter}
+
+GUIDE_QUERIES = [None, "clocking", "customer", "sales", "orders", "odata", "skill-authoring", "nope"]
+
+
+def guide_outputs(flavor: str) -> dict[str, str]:
+    """Skill discovery: the resource list and get_api_guide lookups (which resource a keyword hits)."""
+    adapter = ADAPTERS[flavor](flavor)
+    with _env(**adapter.skills_env()):
+        idx = _mod(flavor, "resources")
+        listing = [
+            {"uri": str(r.definition.uri), "name": r.definition.name, "description": r.definition.description}
+            for r in idx.get_resources()
+        ]
+        out = {"guides/resources.json": json.dumps(listing, indent=2, ensure_ascii=False)}
+        guide = _mod(flavor, "get_api_guide")
+        for q in GUIDE_QUERIES:
+            out[f"guides/get_api_guide_{q or 'none'}.txt"] = asyncio.run(guide.handler(q))
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -485,4 +522,4 @@ def mcp_surface(flavor: str) -> dict[str, str]:
     return {"mcp_surface.json": json.dumps(data, indent=2, sort_keys=True)}
 
 
-ALL_CASES = (har_outputs, openapi_outputs, tool_outputs, mcp_surface)
+ALL_CASES = (har_outputs, openapi_outputs, tool_outputs, guide_outputs, mcp_surface)

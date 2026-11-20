@@ -1,0 +1,7 @@
+name: ifs-shop-floor-clockings
+version: 0.1.0
+description: Shop floor clocking operations (test fixture copy).
+projections: [ShopFloorClockingsHandling]
+ifs_release: null
+evidence:
+  redact_values: true

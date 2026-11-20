@@ -1,0 +1,12 @@
+{
+  "error": "No guide found for 'nope'.",
+  "available_guides": [
+    "ifs://ifs-sales-customer-order-create/guide",
+    "ifs://ifs-sales-customer-orders/guide",
+    "ifs://ifs-sales-customers/guide",
+    "ifs://ifs-shop-floor-clockings/guide",
+    "ifs://ifs-common-odata-reference/guide",
+    "ifs://ifs-skill-authoring/guide"
+  ],
+  "instruction": "No existing skill guide was found for that projection. If the user wants to BUILD a new skill for this projection, use the build_ifs_skill_from_projection prompt (pass the projection name) \u2014 it will fetch the live OpenAPI spec and guide you through authoring the skill. If the user just wants to USE an existing skill that doesn't exist yet, tell the user: 'I don't have a skill for that workflow yet. You can create one using the build_ifs_skill_from_projection prompt, or by recording a HAR file from the browser and using build_ifs_skill_from_har.' Do not attempt to guess or discover IFS endpoints without a guide or skill-building session."
+}

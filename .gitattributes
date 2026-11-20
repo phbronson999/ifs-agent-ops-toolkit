@@ -1,0 +1,3 @@
+# Keep LF in the working tree on every platform (snapshots are written with LF).
+* text=auto eol=lf
+*.png binary
