@@ -4,7 +4,7 @@ This is the source of truth for the lifecycle architecture and the phased migrat
 `ifs-mcp-server-local-python`. `docs/migration-from-ifs-mcp.md` records what each completed
 phase changed; this document says where the project is going and in what order.
 
-Status at time of writing: Phases 0–7 merged; Phase 7b (capability curation) built, with the `create-customer-order` capability (revision 3, evidence-based) awaiting human review. Phase 8 starts after human approval of the capability and its operations; runtime validation is not a precondition (§6.2). The decisions recorded on 2026-11-20 are folded
+Status at time of writing: Phases 0–7c merged. The `create-customer-order` capability (revision 4) and its 12 operations are approved by a human; runtime validation is untested. Phase 8 (skill generator) is in review. The decisions recorded on 2026-11-20 are folded
 in: the customer-order pilot, permanent package `name`, the reserved `.ifs-agent-ops/` folder,
 and the proven agent path as the Phase 13 baseline.
 
