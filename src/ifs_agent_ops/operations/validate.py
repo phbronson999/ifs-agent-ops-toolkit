@@ -80,6 +80,10 @@ def validate_operation(op: Operation) -> list[Finding]:
 
     if not op.evidence:
         add("no-evidence", "warning", "operation has no recorded evidence")
+    if op.status == "approved" and op.approval and op.approval.content_sha256             and op.approval.content_sha256 != op.technical_hash():
+        add("changed-since-approval", "error", "the definition changed after approval; review and approve again")
+    for note in op.review_notes:
+        add("open-question", "info", note)
     return out
 
 

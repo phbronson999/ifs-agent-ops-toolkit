@@ -18,6 +18,8 @@ regenerated (published connector operationIds must stay stable).
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -45,6 +47,9 @@ class Placement(_Model):
     segment: str = Field(description="Path segment (entity set, navigation property or operation) carrying the key")
     key: str = Field(description="Key or parameter name in that segment")
     quoted: bool = Field(description="True for Key='{v}' (string literal), False for Key={v}")
+    alias: Optional[bool] = Field(None, description="True when sent as a parameter alias, Key=@Key, with the value "
+                                                    "as JSON in the query string (@Key=<json>); IFS uses this for "
+                                                    "structured (complex-type) function parameters")
 
 
 class PathParameter(_Model):
@@ -96,6 +101,8 @@ class Approval(_Model):
     approved_at: str
     revision: int
     approved_by: Optional[str] = Field(None, description="Human reviewer (recorded from Phase 7b on)")
+    content_sha256: Optional[str] = Field(None, description="Technical content hash at approval; a later change "
+                                                            "to the definition invalidates the approval")
 
 
 class Operation(_Model):
@@ -121,7 +128,16 @@ class Operation(_Model):
                                                                     "the recordings (observed, including UI-driven "
                                                                     "calls; evidence for curation)")
     evidence: list[Evidence] = Field(default_factory=list)
+    review_notes: list[str] = Field(default_factory=list, description="Unresolved technical questions for the "
+                                                                      "reviewer (human text; kept on re-draft)")
     approval: Optional[Approval] = None
+
+    def technical_hash(self) -> str:
+        """SHA-256 of the technical representation (identity + everything derived from IFS evidence)."""
+        data = {"id": self.id, "projection": self.projection, **self.model_dump(
+            mode="json", exclude_none=True, include={"kind", "method", "path_template", "target", "entity_type",
+                                                     "path_parameters", "query", "body", "headers", "response"})}
+        return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
     def derived(self) -> dict:
         """Everything the drafter derives (excludes identity, human text, status and evidence)."""

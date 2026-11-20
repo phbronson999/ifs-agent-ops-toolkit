@@ -106,6 +106,7 @@ def merge_draft(package: Package, drafted_ops: dict[str, Operation], drafted_wfs
         merged = new.model_copy(update={
             "connector_operation_id": old.connector_operation_id, "title": old.title,
             "description": old.description, "status": old.status, "approval": old.approval,
+            "review_notes": old.review_notes,
             "revision": old.revision + (1 if old.derived() != new.derived() else 0),
         })
         if merged.model_dump() == old.model_dump():
@@ -140,6 +141,6 @@ def approve(package: Package, op_id: str, reviewer: str | None = None) -> Operat
     op = ops[op_id]
     op = op.model_copy(update={"status": "approved", "approval": Approval(
         approved_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), revision=op.revision,
-        approved_by=reviewer)})
+        approved_by=reviewer, content_sha256=op.technical_hash())})
     save_operation(package, op)
     return op

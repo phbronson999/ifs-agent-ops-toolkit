@@ -214,3 +214,29 @@ capability or re-drafting a referenced operation afterwards invalidates the appr
 The first capability, `create-customer-order` in the `ifs-customer-orders` package, is a draft for
 review. It validates with only human blockers: its 9 operations are not yet technically approved and
 3 config values (site, order type, catalog source constant) are undecided.
+
+### Technical operation review (Phase 7b follow-up)
+
+`operations review <id>... | --capability <id> --package <p> [--json]` writes a technical review to
+`<package>/.ifs-agent-ops/review/operations/`. The structured data comes first (`--json`), and the
+Markdown is rendered from it. For each operation it shows:
+
+- kind, method, the full IFS path, metadata element and snapshot, revision, and the technical content hash
+- path, query and body parameters with types, enums and composite-structure members
+- headers, ETag/If-Match and warning-header behaviour
+- the response shape, keys and returned identifiers
+- evidence, observed value *shapes* from the sanitized recordings (never values), and the data flow
+- which capabilities use it
+- validation findings
+- explicit reviewer checks, e.g. parameter aliases, unquoted `null` keys, enum literals, composite
+  structures, time zones and web-client-only headers
+
+`operations approve` shows the same summary before the unchanged human gate. Approval now also pins the
+technical content hash: editing the definition afterwards raises `changed-since-approval`.
+
+Operations can carry `review_notes` (open technical questions) and a `description` (verified facts). Both
+are human text, kept on re-draft and excluded from the hash. The drafter now keeps IFS parameter aliases
+(`Name=@Name`, with the value as JSON in the query string); previously it flattened them into inline
+placeholders.
+
+Capabilities gained `deferred` (scope deliberately left out of a revision) and `Output.description`.

@@ -51,6 +51,9 @@ def render_review(cap: Capability, ops: dict[str, Operation], workflows: dict[st
 
     L += ["## 1. Decisions for the reviewer", ""]
     L += [f"{i}. {_md_escape(n)}" for i, n in enumerate(cap.review_notes, 1)] or ["_None recorded._"]
+    if cap.deferred:
+        L += ["", "**Deliberately out of scope for this revision** (agents must not offer it):", ""]
+        L += [f"- {_md_escape(d)}" for d in cap.deferred]
     L += ["", f"## 2. Validation: {counts.get('error', 0)} error(s), {counts.get('warning', 0)} warning(s)", ""]
     blocking = [f for f in findings if f.severity in ("error", "warning")]
     if blocking:
@@ -117,7 +120,8 @@ def render_review(cap: Capability, ops: dict[str, Operation], workflows: dict[st
         L.append("")
 
     L += ["## 8. Outputs, warnings and errors returned to the agent", ""]
-    L += [f"- output `{o.name}` ← {o.step}.{o.field}{' (' + o.aggregate + ')' if o.aggregate else ''}" for o in cap.outputs]
+    L += [f"- output `{o.name}` ← {o.step}.{o.field}{' (' + o.aggregate + ')' if o.aggregate else ''}"
+          + (f": {_md_escape(o.description)}" if o.description else "") for o in cap.outputs]
     L += [f"- warning ({w.source}{': ' + w.header if w.header else ''}{': ' + w.step if w.step else ''}) — {_md_escape(w.meaning)}"
           for w in cap.warnings]
     L += [f"- error `{e.meaning}` when {e.step} {e.when}" for e in cap.errors]

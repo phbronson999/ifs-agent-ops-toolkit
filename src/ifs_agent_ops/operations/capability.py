@@ -104,6 +104,7 @@ class Output(_M):
     step: str
     field: str
     aggregate: Optional[Literal["sum", "count", "list"]] = None
+    description: str = ""
 
 
 class WarningRule(_M):
@@ -138,6 +139,8 @@ class Capability(_M):
     description: str = ""
     evidence: list[str] = Field(default_factory=list, description="Observed workflows this was curated from")
     review_notes: list[str] = Field(default_factory=list, description="Open questions for the human reviewer")
+    deferred: list[str] = Field(default_factory=list, description="Scope deliberately left out of this revision "
+                                                                  "(agents must not offer it)")
     config: dict[str, ConfigValue] = Field(default_factory=dict)
     inputs: list[Input] = Field(default_factory=list)
     questions: list[Question] = Field(default_factory=list)

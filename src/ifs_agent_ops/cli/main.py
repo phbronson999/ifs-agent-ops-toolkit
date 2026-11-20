@@ -210,18 +210,32 @@ def cmd_operations(args: argparse.Namespace) -> int:
             text, errors = service.validation_report(package, args.operation, include_info=args.all)
             print(text)
             return 1 if errors else 0
+        elif args.operations_command == "review":
+            from ifs_agent_ops.operations.operation_review import render_summary, to_json, write_document
+
+            reviews, name, title = service.operation_reviews(package, args.operation, args.capability)
+            if args.json:
+                print(to_json(reviews))
+                return 0
+            path = write_document(package, reviews, name, title)
+            for r in reviews:
+                print(render_summary(r) + "\n")
+            print(f"review report: {path}")
         elif args.operations_command == "approve":
+            from ifs_agent_ops.operations.operation_review import MEANING, render_summary, write_document
+
             text, errors = service.validation_report(package, args.operation)
             if errors:
                 print(f"refused: {args.operation} has validation errors\n{text}", file=sys.stderr)
                 return 1
-            print(service.show(package, args.operation))
-            reviewer = human_confirmation("operation", args.operation,
-                                          "Technical approval: this canonical definition accurately represents the "
-                                          "IFS operation. It does NOT expose the operation to agents.")
+            reviews, name, title = service.operation_reviews(package, [args.operation])
+            path = write_document(package, reviews, name, title)
+            print(render_summary(reviews[0]))
+            print(f"\nFull technical review: {path}")
+            reviewer = human_confirmation("operation", reviews[0]["id"], MEANING)
             if reviewer is None:
                 return 1
-            op = approve(package, args.operation, reviewer)
+            op = approve(package, reviews[0]["id"], reviewer)
             print(f"approved {op.id} (revision {op.revision}) by {reviewer}")
     except (PackageError, FileNotFoundError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -406,7 +420,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     o_show = ops.add_parser("show", help="print one operation with its findings")
     o_show.add_argument("operation", help="operation id (or a unique part of it)")
     o_show.add_argument("--package", required=True)
-    o_appr = ops.add_parser("approve", help="mark an operation approved (refused while it has errors)")
+    o_rev = ops.add_parser("review", help="technical review report for operations (written to "
+                                          "<package>/.ifs-agent-ops/review/operations/)")
+    o_rev.add_argument("operation", nargs="*", help="operation id(s) (or unique parts)")
+    o_rev.add_argument("--capability", help="review every operation the capability uses")
+    o_rev.add_argument("--package", required=True)
+    o_rev.add_argument("--json", action="store_true", help="print the structured review data instead")
+    o_appr = ops.add_parser("approve", help="technical approval by a human (interactive terminal only)")
     o_appr.add_argument("operation")
     o_appr.add_argument("--package", required=True)
     ops.add_parser("schema", help="print the JSON Schema of operations and workflows")
