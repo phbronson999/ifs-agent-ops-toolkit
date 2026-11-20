@@ -14,6 +14,7 @@ import yaml
 
 from ifs_agent_ops.operations.capability import Capability, CapabilityApproval
 from ifs_agent_ops.operations.capability_validate import validate_capability
+from ifs_agent_ops.operations.yaml_persist import persist_approval
 from ifs_agent_ops.operations.store import load_operations
 from ifs_agent_ops.workspace.package import Package
 
@@ -64,5 +65,6 @@ def approve_capability(package: Package, cap_id: str, reviewer: str) -> Capabili
         approved_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         approved_by=reviewer.strip(), revision=cap.revision, content_sha256=cap.content_hash(),
         operations={op_id: ops[op_id].revision for op_id in referenced})})
-    save_capability(package, approved)
+    path = caps_dir(package) / f"{cap_id}.yaml"
+    persist_approval(path, approved, lambda: save_capability(package, approved))  # small diff, no reformatting
     return approved

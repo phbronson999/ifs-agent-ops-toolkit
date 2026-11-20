@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 
 from ifs_agent_ops.operations.model import Approval, Operation, Workflow
+from ifs_agent_ops.operations.yaml_persist import persist_approval
 from ifs_agent_ops.workspace.package import Package
 
 MAX_CONNECTOR_OPERATION_ID = 300  # Power Platform limit (roadmap requirement C5)
@@ -142,5 +143,9 @@ def approve(package: Package, op_id: str, reviewer: str | None = None) -> Operat
     op = op.model_copy(update={"status": "approved", "approval": Approval(
         approved_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), revision=op.revision,
         approved_by=reviewer, content_sha256=op.technical_hash())})
-    save_operation(package, op)
+    path = ops_dir(package) / f"{op.id}.yaml"
+    if path.exists():  # small diff: only status and approval change
+        persist_approval(path, op, lambda: save_operation(package, op))
+    else:
+        save_operation(package, op)
     return op
