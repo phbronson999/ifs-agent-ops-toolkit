@@ -28,6 +28,31 @@ The two approvals mean different things, and neither implies the other:
   downstream agents and applications may use.* Only approved capabilities, through the approved
   operations they reference, reach generators.
 
+**Neither approval means runtime validated.** Operations and capabilities both carry
+`runtime_validation`, which holds a `status` (untested, conditional, validated or failed) and the
+`requirements` that runtime validation must prove. Only runtime validation runs (Phase 11) set the
+status. It is excluded from approval hashes, so a validation result can neither grant nor invalidate
+an approval. An operation observed working in the IFS web client and backed by metadata can be
+technically approved before it has been replayed outside its recorded context. That replay is a
+runtime requirement, not a doubt about the canonical model.
+
+Review notes are classified:
+
+| Category | Where | Blocks |
+|---|---|---|
+| Technical model question: the canonical representation itself may be wrong | `operation.review_notes` | operation approval (shown as UNRESOLVED) |
+| Curation question: a business or design decision | `capability.review_notes` | capability approval, until decided |
+| Runtime-validation requirement | `runtime_validation.requirements` (operation or capability) | deployment and promotion, not approval |
+| Deferred scope | `capability.deferred`, and `excluded_calls` classified `deferred` | nothing in this revision |
+| Known or informational | review findings at levels `known` and `info` | nothing |
+
+`capability.excluded_calls` classifies every call the IFS web client made in the evidence that the
+capability does not include:
+
+- `excluded`: evidence shows it isn't needed
+- `deferred`: out of scope for this revision
+- `validate-at-runtime`: believed unnecessary, but runtime validation must prove it
+
 Naming: the curated layer is a separate model, `Capability`, stored in `capabilities/`. The
 existing `Workflow` model stays the observed, recording-derived workflow (its required
 `recording` reference is deliberate) and is not reused for curated sequences.

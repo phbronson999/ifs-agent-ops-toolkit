@@ -15,6 +15,7 @@ dependencies = [
     "truststore>=0.9",  # verify IFS TLS against the OS trust store
     "pyyaml>=6.0",
     "pydantic>=2.5",
+    "rich>=13",  # human CLI views (review); already present via mcp[cli]
 ]
 
 [project.optional-dependencies]

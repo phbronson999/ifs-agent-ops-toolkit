@@ -181,3 +181,93 @@ requested capability has a FAIL.
 
 On a fresh clone (no `.env`, no packages) the result is one FAIL ("copy .env.example to .env and
 set …") and one WARN (set `IFS_AGENT_OPS_PACKAGES` or `package init`), with exit code 1.
+
+## Phase 7b: curated capabilities and the human approval gate
+
+A **capability** (`<package>/capabilities/<id>.yaml`) is the intentional, safe business contract that
+downstream agents and applications may use. It is a separate model from the observed `Workflow`
+(evidence) and the canonical `Operation` (technical truth). It declares:
+
+- organisation `config` values (unset values block approval)
+- agent-facing `inputs` with their source (`document`, `user`, `agent`), `resolve` lookups and `confirm` flags
+- user `questions`, `actions` (e.g. `prepare` writes nothing; `submit` requires confirmation)
+- `steps` over approved operations with a role (lookup, validation, defaults, calculation, write),
+  `for_each`, `body_from` seeding (IFS `*_Default` records overlaid by validation results) and explicit
+  `bindings`, each with exactly one source (input, item, step field, config, derived, fixed)
+- meaningful `outputs`, `warnings` and `errors`, and `review_notes` (open questions for the reviewer)
+
+| Command | Purpose |
+|---|---|
+| `capabilities list` / `validate` | status and findings (unknown or unapproved operations, type mismatches, unbound required or path parameters on writes, writes without confirmation, unreachable steps, user inputs without a question, unset config, changes since approval) |
+| `capabilities review <id>` | writes a local Markdown review report to `<package>/.ifs-agent-ops/review/<id>.md`: reviewer decisions, actions, inputs, questions, config, a field-by-field table per write step showing who supplies each canonical field, operations and their approval, evidence |
+| `capabilities approve <id>` | human-only (see below) |
+| `capabilities schema` | JSON Schema |
+
+**Approval is human-only.** `operations approve` and `capabilities approve` refuse unless stdin and
+stdout are an interactive terminal, then require a one-time code shown on screen, the id typed back
+and the reviewer's name; EOF or an interrupt refuses. There is no MCP approval tool (a test enforces
+it). Capability approval also refuses while any validation error exists, and records the reviewer,
+time, a SHA-256 of the capability content and the revision of every operation it uses: editing the
+capability or re-drafting a referenced operation afterwards invalidates the approval.
+`Approval.approved_by` is now recorded for operation approvals too.
+
+The first capability, `create-customer-order` in the `ifs-customer-orders` package, is a draft for
+review. It validates with only human blockers: its 9 operations are not yet technically approved and
+3 config values (site, order type, catalog source constant) are undecided.
+
+### Technical operation review (Phase 7b follow-up)
+
+One structured review result (`operations/operation_review.py`) feeds four presentations, none of
+which computes facts of its own:
+
+| Presentation | How to get it |
+|---|---|
+| Capability overview (terminal) | `operations review --capability <id> --package <p>` |
+| One operation: summary, then deeper | `operations review <op-id> --package <p> [--details \| --full]` |
+| Markdown | `<package>/.ifs-agent-ops/review/operations/<name>.md`, the concise review document, plus `appendix/<op-id>.md`, the exhaustive technical detail per operation |
+| JSON | `--output json`, the structured result itself: deterministic, no ANSI, no files written |
+
+**Findings.** Every finding has a level:
+
+- `blocking`: validation error
+- `open`: a recorded open question
+- `check`: something the reviewer must confirm
+- `info`
+- `known`: classified web-client behaviour, such as the Prefer wait header, excluded from the contract
+
+Equivalent findings are grouped (for example, "24 decimal fields ... IEEE754Compatible") and keep their
+field lists. The operation **state** is derived from the levels and approval data alone:
+
+- BLOCKED: there is a blocking finding
+- APPROVED: the approval is current and nothing is blocking
+- UNRESOLVED: there is an open question
+- CHECK: there are checks to confirm
+- READY: otherwise
+
+The terminal views use Rich. In an interactive terminal they use colour for state only. When output is
+redirected, they print ASCII, no colour and a fixed width, so the output is deterministic. `NO_COLOR` is
+honoured.
+
+`operations approve` shows the operation summary, a YOU ARE APPROVING / YOU ARE NOT APPROVING panel, and
+any unresolved questions and checks before the unchanged human gate. Approval also pins the technical
+content hash, so editing the definition afterwards raises `changed-since-approval`. `--output json` is
+also available on `operations validate` and `capabilities validate`.
+
+Operations can carry `review_notes` (open technical questions) and a `description` (verified facts). Both
+are human text, kept on re-draft and excluded from the hash. The drafter now keeps IFS parameter aliases
+(`Name=@Name`, with the value as JSON in the query string); previously it flattened them into inline
+placeholders.
+
+Capabilities gained `deferred` (scope deliberately left out of a revision) and `Output.description`.
+
+### Approval is not runtime validation (Phase 7b boundary)
+
+Operations and capabilities carry `runtime_validation`: a `status` (untested, conditional, validated or
+failed) and the `requirements` that runtime validation must prove. Approval never sets the status. The
+status is excluded from approval hashes, and runtime requirements never make an operation UNRESOLVED.
+`operation.review_notes` now means *technical model questions* only. `capability.review_notes` means
+*curation decisions*, and `capability.excluded_calls` classifies every observed web-client call the
+capability leaves out as `excluded`, `deferred` or `validate-at-runtime`.
+
+Executing capabilities against IFS (request rendering, step execution, composite records, response
+headers) is Phase 11 work, recorded in roadmap §6.3. It was not built in Phase 7b.

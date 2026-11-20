@@ -146,7 +146,7 @@ def templatize(model: EdmxModel, segs: list[Segment], res: Resolved) -> tuple[st
         seg_type = res.segment_types[i] if i < len(res.segment_types) else None
         is_op_call = res.operation is not None and i == len(segs) - 1 and (len(segs) == 1 or seg.name.startswith("IfsApp."))
         rendered = []
-        for pos, (key, _value, observed_quoted) in enumerate(seg.keys):
+        for pos, (key, value, observed_quoted) in enumerate(seg.keys):
             name = key or _key_name(model, seg_type, pos)
             if is_op_call:
                 prop = next((x for x in res.operation.call_parameters if x.name == name), None)
@@ -155,11 +155,14 @@ def templatize(model: EdmxModel, segs: list[Segment], res: Resolved) -> tuple[st
                 prop = next((x for x in (et.properties if et else []) if x.name == name), None)
             # Quoting follows the declared type: a null value is sent unquoted (Key=null) even for
             # strings, so observed quoting alone would split one operation into several templates.
-            quoted = (prop.type == "Edm.String") if prop else observed_quoted
-            ph = f"'{{{name}}}'" if quoted else f"{{{name}}}"
+            # A parameter alias (Key=@Alias, value as JSON in the query string) is how IFS sends
+            # structured parameters; the alias name is the client's choice, so it is canonicalised.
+            alias = not observed_quoted and value.startswith("@")
+            quoted = False if alias else (prop.type == "Edm.String") if prop else observed_quoted
+            ph = f"@{name}" if alias else f"'{{{name}}}'" if quoted else f"{{{name}}}"
             rendered.append(f"{name}={ph}" if key else ph)
             p = params.setdefault(name, PathParameter(name=name, placements=[]))
-            placement = Placement(segment=seg.name.split(".")[-1], key=name, quoted=quoted)
+            placement = Placement(segment=seg.name.split(".")[-1], key=name, quoted=quoted, alias=alias or None)
             if placement not in p.placements:
                 p.placements.append(placement)
             if p.type is None and prop:

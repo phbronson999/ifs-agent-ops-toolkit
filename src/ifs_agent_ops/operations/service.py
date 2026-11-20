@@ -91,3 +91,44 @@ def validation_report(package: Package, op_id: str | None = None, include_info: 
     if not findings:
         return "no findings", 0
     return "\n".join(f"{f.severity:<8} {f.rule:<26} {f.operation}: {f.message}" for f in findings), errors
+
+
+def resolve_operation_id(ops: dict, op_id: str) -> str:
+    if op_id in ops:
+        return op_id
+    matches = [i for i in ops if op_id.lower() in i.lower()]
+    if len(matches) != 1:
+        raise KeyError(f"No unique operation matches {op_id!r}" + (f": {', '.join(matches[:10])}" if matches else ""))
+    return matches[0]
+
+
+def operation_reviews(package: Package, op_ids: list[str] | None = None,
+                      capability: str | None = None) -> tuple[dict, str]:
+    """The structured technical review for operations chosen by id or by the capability using them.
+
+    Returns (review set, report name). Every presentation renders from the review set."""
+    from ifs_agent_ops.operations.capability_store import load_capabilities
+    from ifs_agent_ops.operations.operation_review import build_operation_review, build_review_set
+
+    ops = load_operations(package)
+    caps = load_capabilities(package)
+    if capability:
+        if capability not in caps:
+            raise KeyError(f"No capability {capability!r} in {package.name}")
+        chosen = list(dict.fromkeys(s.operation for s in caps[capability].steps if s.operation in ops))
+        name = f"capability-{capability}"
+    else:
+        chosen = [resolve_operation_id(ops, i) for i in (op_ids or [])]
+        if not chosen:
+            raise KeyError("name at least one operation, or use --capability")
+        name = chosen[0] if len(chosen) == 1 else "selection"
+    models: dict = {}
+    for proj in {ops[i].projection for i in chosen}:
+        try:
+            models[proj] = load_metadata(package, proj)
+        except (FileNotFoundError, OSError):
+            models[proj] = None
+    cache: dict = {}
+    reviews = [build_operation_review(package, ops[i], ops, models.get(ops[i].projection), caps, cache)
+               for i in chosen]
+    return build_review_set(reviews, caps[capability] if capability else None), name

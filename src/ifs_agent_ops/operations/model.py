@@ -10,7 +10,8 @@ renames, connector quirks) do not belong here; the model keeps the original IFS 
 IFS types.
 
 ``status: approved`` on an operation means its technical description is verified. It does not
-mean the operation is exposed to agents; exposure is decided by approved capabilities.
+mean the operation is exposed to agents (exposure is decided by approved capabilities), and it does
+not mean the operation has been executed outside the recorded context: that is ``runtime_validation``.
 
 Identity rules: ``id`` is derived from projection + kind + path segments and never changes;
 ``connector_operation_id`` is assigned once when the operation is first drafted and is never
@@ -18,6 +19,8 @@ regenerated (published connector operationIds must stay stable).
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -45,6 +48,9 @@ class Placement(_Model):
     segment: str = Field(description="Path segment (entity set, navigation property or operation) carrying the key")
     key: str = Field(description="Key or parameter name in that segment")
     quoted: bool = Field(description="True for Key='{v}' (string literal), False for Key={v}")
+    alias: Optional[bool] = Field(None, description="True when sent as a parameter alias, Key=@Key, with the value "
+                                                    "as JSON in the query string (@Key=<json>); IFS uses this for "
+                                                    "structured (complex-type) function parameters")
 
 
 class PathParameter(_Model):
@@ -92,9 +98,26 @@ class Evidence(_Model):
     status: int
 
 
+RuntimeStatus = Literal["untested", "conditional", "validated", "failed"]
+
+
+class RuntimeValidation(_Model):
+    """Has an implementation been executed against IFS? Separate from (and never implied by) approval.
+
+    ``status`` is set only by runtime validation (Phase 11), never by a human approval; it is excluded
+    from approval hashes so a validation result cannot invalidate an approval. ``requirements`` lists
+    what must be proven at runtime.
+    """
+    status: RuntimeStatus = "untested"
+    requirements: list[str] = Field(default_factory=list, description="What runtime validation must prove")
+
+
 class Approval(_Model):
     approved_at: str
     revision: int
+    approved_by: Optional[str] = Field(None, description="Human reviewer (recorded from Phase 7b on)")
+    content_sha256: Optional[str] = Field(None, description="Technical content hash at approval; a later change "
+                                                            "to the definition invalidates the approval")
 
 
 class Operation(_Model):
@@ -120,7 +143,19 @@ class Operation(_Model):
                                                                     "the recordings (observed, including UI-driven "
                                                                     "calls; evidence for curation)")
     evidence: list[Evidence] = Field(default_factory=list)
+    review_notes: list[str] = Field(default_factory=list, description="Technical model questions: doubts that the "
+                                                                      "canonical representation itself is correct "
+                                                                      "(human text; kept on re-draft)")
+    runtime_validation: RuntimeValidation = Field(default_factory=RuntimeValidation,
+                                                  description="Runtime evidence still needed; not part of approval")
     approval: Optional[Approval] = None
+
+    def technical_hash(self) -> str:
+        """SHA-256 of the technical representation (identity + everything derived from IFS evidence)."""
+        data = {"id": self.id, "projection": self.projection, **self.model_dump(
+            mode="json", exclude_none=True, include={"kind", "method", "path_template", "target", "entity_type",
+                                                     "path_parameters", "query", "body", "headers", "response"})}
+        return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
     def derived(self) -> dict:
         """Everything the drafter derives (excludes identity, human text, status and evidence)."""
