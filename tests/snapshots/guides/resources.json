@@ -1,0 +1,32 @@
+[
+  {
+    "uri": "ifs://ifs-sales-customer-order-create/guide",
+    "name": "IFS Customer Order Create — Lines & Charges",
+    "description": "Create new customer orders, add order lines, and attach charges in IFS Cloud."
+  },
+  {
+    "uri": "ifs://ifs-sales-customer-orders/guide",
+    "name": "IFS Customer Order Management",
+    "description": "Query and inspect customer orders, order lines, charges, and addresses in IFS Cloud."
+  },
+  {
+    "uri": "ifs://ifs-sales-customers/guide",
+    "name": "IFS Customer Management",
+    "description": "Use the callprotectedapi tool with the endpoints below to create and query customers in IFS Cloud."
+  },
+  {
+    "uri": "ifs://ifs-shop-floor-clockings/guide",
+    "name": "IFS Shop Floor Clockings — Query, Modify, and Add Machine Downtime",
+    "description": "Read shop floor operation clockings, modify existing clockings, and add new machine downtime clockings in IFS Cloud."
+  },
+  {
+    "uri": "ifs://ifs-common-odata-reference/guide",
+    "name": "IFS OData Query Reference",
+    "description": "Use this reference when constructing OData query parameters for callprotectedapi endpoints."
+  },
+  {
+    "uri": "ifs://ifs-skill-authoring/guide",
+    "name": "IFS Skill Authoring Guide",
+    "description": "How to build, format, and save IFS resource guide (skill) files."
+  }
+]

@@ -1,0 +1,7 @@
+name: ifs-customer-orders
+version: 0.1.0
+description: Customer order and customer handling operations (test fixture copy).
+projections: [CustomerOrderHandling, CustomerHandling]
+ifs_release: null
+evidence:
+  redact_values: true

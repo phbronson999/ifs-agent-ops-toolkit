@@ -5,8 +5,10 @@ from typing import Optional
 import mcp.types as mcp_types
 
 from ifs_agent_ops.config import get_skills_dir
+from ifs_agent_ops.workspace.discovery import discover_packages
 
-_BUNDLED_DIR = Path(__file__).parent
+# Toolkit-wide guidance (skill authoring guide, OData reference).
+GUIDANCE_DIR = Path(__file__).resolve().parents[2] / "guidance"
 
 
 @dataclass
@@ -15,16 +17,21 @@ class MCPResource:
     path: str
 
 
-def _get_resource_dirs() -> list[Path]:
+def _skill_dirs() -> list[Path]:
+    """Where skills come from, highest precedence first: SKILLS_DIR, then operation packages."""
     dirs: list[Path] = []
     skills_dir = get_skills_dir()
     if skills_dir:
         resolved = Path(skills_dir).resolve()
         if resolved.exists():
             dirs.append(resolved)
-    if _BUNDLED_DIR.exists():
-        dirs.append(_BUNDLED_DIR)
+    packages, _problems = discover_packages()
+    dirs.extend(p.skills_dir for p in packages if p.skills_dir.is_dir())
     return dirs
+
+
+def _markdown_files(directory: Path) -> list[Path]:
+    return [p for p in sorted(directory.iterdir()) if p.suffix == ".md"] if directory.is_dir() else []
 
 
 def _parse_metadata(content: str, filename: str) -> tuple[str, str, str]:
@@ -42,11 +49,15 @@ def _parse_metadata(content: str, filename: str) -> tuple[str, str, str]:
 
 def get_resources() -> list[MCPResource]:
     """Scan resource directories fresh on every call (hot-reload)."""
-    seen: dict[str, Path] = {}  # filename -> path (first seen wins)
-    for d in _get_resource_dirs():
-        for p in sorted(d.iterdir()):
-            if p.suffix == ".md" and p.name not in seen:
-                seen[p.name] = p
+    # Skills from all sources, ordered by file name (a name seen first wins), then guidance.
+    # With only SKILLS_DIR set this is exactly the legacy order: SKILLS_DIR sorted, then bundled.
+    skills: dict[str, Path] = {}
+    for d in _skill_dirs():
+        for p in _markdown_files(d):
+            skills.setdefault(p.name, p)
+    seen: dict[str, Path] = {name: skills[name] for name in sorted(skills)}
+    for p in _markdown_files(GUIDANCE_DIR):
+        seen.setdefault(p.name, p)
 
     result: list[MCPResource] = []
     for filename, path in seen.items():
