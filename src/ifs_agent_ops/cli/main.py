@@ -491,6 +491,40 @@ def cmd_skills(args: argparse.Namespace) -> int:
     return 1 if failed or stale else 0
 
 
+def cmd_connector(args: argparse.Namespace) -> int:
+    """Generate the Power Platform connector from approved capabilities (deterministic; writes into the package)."""
+    import json
+
+    from ifs_agent_ops.generators.connector import generate
+    from ifs_agent_ops.workspace.discovery import find_package
+    from ifs_agent_ops.workspace.package import PackageError
+
+    try:
+        package = find_package(args.package)
+    except PackageError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    gen = generate(package, check=args.check, max_bytes=args.max_bytes)
+    size = gen.built.size if gen.built else None
+    if args.output == "json":
+        print(json.dumps({"schema": "ifs-agent-ops/connector-generation", "schema_version": 1, "package": package.name,
+                          "check": args.check, "ok": gen.ok, "errors": gen.errors,
+                          "size": {"bytes": size.bytes, "limit": size.limit} if size else None,
+                          "operations": [{"operation": e.sel.op.id, "operation_id": e.operation_id,
+                                          "method": e.method, "path": e.path, "match": e.sel.match}
+                                         for e in (gen.built.entries if gen.built else [])],
+                          "results": [{"path": str(r.path), "action": r.action, "message": r.message}
+                                      for r in gen.results]}, indent=2))
+    else:
+        for r in gen.results:
+            print(f"{r.action:<12} {r.path}" + (f"\n             {r.message}" if r.message else ""))
+        if size:
+            print(f"{len(gen.built.entries)} operations; apiDefinition {size.bytes:,} of {size.limit:,} bytes "
+                  f"({100 * size.bytes / size.limit:.1f}%); not deployment-validated until Phase 11")
+    stale = args.check and any(r.action.startswith("would-") for r in gen.results)
+    return 1 if not gen.ok or stale else 0
+
+
 def _add_output(parser: argparse.ArgumentParser) -> None:
     """Output contract: human text by default; --output json is the structured result for automation."""
     parser.add_argument("--output", choices=["text", "json"], default="text",
@@ -593,6 +627,14 @@ def main(argv: Optional[list[str]] = None) -> int:
             _add_output(sp)
     caps.add_parser("schema", help="print the JSON Schema of capabilities")
 
+    con = sub.add_parser("connector", help="Power Platform custom connector generated from approved capabilities"
+                         ).add_subparsers(dest="connector_command", required=True)
+    c_gen = con.add_parser("generate", help="generate <package>/power-platform/connector/* from approved capabilities")
+    c_gen.add_argument("--package", required=True)
+    c_gen.add_argument("--check", action="store_true", help="write nothing; exit 1 if a file is missing or stale")
+    c_gen.add_argument("--max-bytes", type=int, default=1_000_000, help="apiDefinition size limit (default 1000000)")
+    _add_output(c_gen)
+
     skl = sub.add_parser("skills", help="agent skills generated from approved capabilities").add_subparsers(
         dest="skills_command", required=True)
     s_gen = skl.add_parser("generate", help="generate <package>/agent/skills/<capability>.md from approved capabilities")
@@ -616,6 +658,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_capabilities(args)
     if args.command == "skills":
         return cmd_skills(args)
+    if args.command == "connector":
+        return cmd_connector(args)
 
     if args.version:
         try:

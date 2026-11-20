@@ -23,7 +23,7 @@ from typing import Optional
 from ifs_agent_ops.ifs.paths import projection_path
 from ifs_agent_ops.operations.capability import Capability, Source, Step
 from ifs_agent_ops.operations.capability_store import load_capabilities
-from ifs_agent_ops.operations.capability_validate import validate_capability
+from ifs_agent_ops.generators.gating import GenerationRefused, gate_capability as _gate  # noqa: F401
 from ifs_agent_ops.operations.model import Operation
 from ifs_agent_ops.operations.store import load_operations
 from ifs_agent_ops.workspace.package import Package
@@ -32,10 +32,6 @@ GENERATOR = "ifs-agent-ops skills generator v1"
 MARKER = "<!-- ifs-agent-ops:generated"
 _SOURCE_WORDS = {"document": "the customer's document", "user": "ask the user", "agent": "you determine it"}
 _MATCHES = {"none": "no match", "many": "more than one match", "none-or-many": "no match or more than one match"}
-
-
-class GenerationRefused(RuntimeError):
-    pass
 
 
 def is_generated(text: str) -> bool:
@@ -72,15 +68,6 @@ def _when_text(when: dict) -> str:
     if "step" in when:
         return f"the `{when['step']}` check finds {_MATCHES.get(when.get('matches'), when.get('matches'))}"
     return ", ".join(f"{k}={v}" for k, v in when.items()) or "needed"
-
-
-def _gate(cap: Capability, ops: dict[str, Operation]) -> None:
-    if cap.status != "approved" or cap.approval is None:
-        raise GenerationRefused(f"{cap.id} is {cap.status}; only approved capabilities are generated")
-    errors = [f for f in validate_capability(cap, ops) if f.severity == "error"]
-    if errors:
-        raise GenerationRefused(f"{cap.id} has {len(errors)} validation error(s) (e.g. {errors[0].rule}: "
-                                f"{errors[0].message}); its approval is not current")
 
 
 # ── agent-facing contract ────────────────────────────────────────────────────

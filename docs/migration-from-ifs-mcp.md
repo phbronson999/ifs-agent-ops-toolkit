@@ -329,3 +329,57 @@ skill (`ifs://<capability>/guide`).
 rule contradicted the customer-order evidence. It now says the format is operation-specific, with the
 recorded examples for shop floor clocking (no suffix) and customer order (`Z`, with the date
 preserved). Only the `get_api_guide_skill-authoring` snapshot changed.
+
+## Phase 9: connector generator
+
+`ifs-agent-ops connector generate --package <p> [--check] [--max-bytes N] [--output json]` writes
+`<package>/power-platform/connector/` from the operations referenced by **approved** capabilities
+(`generators/connector/`). Each capability and operation must have a current approval; draft
+capabilities are left out and listed. Generation is deterministic and offline. It reads only the
+pinned `$openapi?V2` and `$metadata`, and refuses when they don't match their `snapshot.yaml` hashes.
+`--check` writes nothing and exits 1 when a file is missing or stale.
+
+| File | Content |
+|---|---|
+| `apiDefinition.swagger.json` | Swagger 2.0, compact UTF-8; the bytes measured are the bytes written |
+| `apiProperties.json` | environment-independent properties only |
+| `operation-ids.yaml` | the stable operationId map; an id never changes, and a retired id is never reused |
+| `report.md` | selection, how values reach IFS, transforms, size report, deployment items, provenance |
+
+**Pipeline** (plan §5a):
+- select and match to the spec: `exact`, `normalized` (key values ignored) or `bound-equivalent`
+  (the spec declares the same bound function on the same entity type through another route);
+  anything else refuses generation
+- compatibility transforms: C1 unique placeholders, C3 arrays become strings, C4 description from
+  the manifest, C5 operationId length
+- annotations from metadata: C8 enum `$filter` syntax, C9 field lists on GETs, specification
+  links removed
+- pruning: C7 `$ref` closure; a dangling reference is an error
+- validation: C2 placeholders, C5 uniqueness, C7, C10 size against a 1 MB default, with the
+  largest paths and definitions on failure
+
+**Decisions to review:**
+- **Canonical path, spec operation object.** The connector path is the canonical (recorded) path.
+  The spec supplies the body schema, query options and responses. Path and header parameters are
+  rebuilt from the canonical operation, so types and repeated keys come from the model.
+- **Function parameters are OData literals.** The recordings send `OrderNo=null` to
+  `CheckCustPoExist` and `GetCustomerDefaults`, which a quoted placeholder (`OrderNo='{OrderNo}'`)
+  cannot express. Function-call parameters are therefore placed unquoted, and the caller sends
+  `'text'`, `null`, `Ns.Enum'Member'`, a number or a date-time. Entity keys keep their quotes.
+  Parameter aliases stay in the path (`P=@P`), with an `@P` JSON query parameter.
+- **`bound-equivalent` match.** The recorded route
+  `CustomerOrderSet(OrderNo=...)/OrderLinesArray/...CustomerOrderLine_Default()` is not in the IFS
+  spec, which declares the function only on `/CustomerOrderLineSet`. The generator keeps the
+  recorded route and reuses that operation object. The report names the spec route.
+- **Selection.** Only operations that approved capabilities reference are included. Operations that
+  appear only in `depends_on` links or observed workflows are left out.
+- **Not generated (deployment state, Phase 10).**
+  - The host stays the `ifs.example` placeholder.
+  - Connection authentication (roadmap §7 assumption 5) and the on-premises data gateway
+    (assumption 2) are not generated: there are no `securityDefinitions`, and `connectionParameters`
+    is empty.
+- **Not deployment-validated** until Phase 11. To confirm on import:
+  - `@` alias query parameter names
+  - literal path parameters
+
+Approval gates are shared with the skill generator (`generators/gating.py`).
