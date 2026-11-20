@@ -1,0 +1,5 @@
+{
+  "output": "{\n  \"error\": \"authentication_required\",\n  \"status\": null,\n  \"message\": \"No session found. Please authenticate first.\",\n  \"details\": null\n}",
+  "requests": [],
+  "session_file_after": "{\n  \"s1\": {\n    \"access_token\": \"a1\",\n    \"refresh_token\": \"r1\",\n    \"expires_at\": 1800003600000,\n    \"user_id\": \"s1\"\n  }\n}"
+}

@@ -1,0 +1,15 @@
+{
+  "output": "{\n  \"status\": 200,\n  \"data\": {\n    \"value\": [\n      {\n        \"A\": 1\n      }\n    ]\n  }\n}",
+  "requests": [
+    {
+      "body": "",
+      "headers": {
+        "accept": "application/json;odata.metadata=full;IEEE754Compatible=true",
+        "authorization": "Bearer a1"
+      },
+      "method": "GET",
+      "url": "https://example.ifs.cloud/main/ifsapplications/projection/v1/Demo.svc/ThingSet"
+    }
+  ],
+  "session_file_after": "{\n  \"s1\": {\n    \"access_token\": \"a1\",\n    \"refresh_token\": \"r1\",\n    \"expires_at\": 1800003600000,\n    \"user_id\": \"s1\"\n  }\n}"
+}

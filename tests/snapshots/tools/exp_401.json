@@ -1,0 +1,15 @@
+{
+  "export_files": {},
+  "output": "{\n  \"error\": \"API call failed during export\",\n  \"batch\": 1,\n  \"records_exported_so_far\": 0,\n  \"details\": \"Session expired or unauthorised. Call the start_oauth tool now to re-authenticate \\u2014 do not ask the user to do this manually.\"\n}",
+  "requests": [
+    {
+      "body": "",
+      "headers": {
+        "accept": "application/json;odata.metadata=full;IEEE754Compatible=true",
+        "authorization": "Bearer test-token"
+      },
+      "method": "GET",
+      "url": "https://example.ifs.cloud/main/ifsapplications/projection/v1/Demo.svc/ThingSet?$top=100&$skip=0"
+    }
+  ]
+}

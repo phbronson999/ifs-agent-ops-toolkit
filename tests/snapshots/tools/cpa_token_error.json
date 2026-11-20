@@ -1,0 +1,4 @@
+{
+  "output": "{\n  \"error\": \"authentication_required\",\n  \"status\": null,\n  \"message\": \"No refresh token available\",\n  \"details\": null\n}",
+  "requests": []
+}

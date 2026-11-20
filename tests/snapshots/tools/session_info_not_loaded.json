@@ -1,0 +1,4 @@
+{
+  "output": "{\n  \"authenticated\": false,\n  \"message\": \"Session ID found but session data is missing. Please re-authenticate.\"\n}",
+  "requests": []
+}

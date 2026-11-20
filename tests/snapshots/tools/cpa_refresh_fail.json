@@ -1,0 +1,15 @@
+{
+  "output": "{\n  \"error\": \"authentication_required\",\n  \"status\": null,\n  \"message\": \"Client error '400 Bad Request' for url 'https://example.ifs.cloud/auth/realms/example/protocol/openid-connect/token'\\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400\",\n  \"details\": null\n}",
+  "requests": [
+    {
+      "body": "grant_type=refresh_token&refresh_token=r1&client_id=test-client",
+      "headers": {
+        "accept": "*/*",
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      "method": "POST",
+      "url": "https://example.ifs.cloud/auth/realms/example/protocol/openid-connect/token"
+    }
+  ],
+  "session_file_after": "{\n  \"s1\": {\n    \"access_token\": \"a1\",\n    \"refresh_token\": \"r1\",\n    \"expires_at\": 1799999999000,\n    \"user_id\": \"s1\"\n  }\n}"
+}

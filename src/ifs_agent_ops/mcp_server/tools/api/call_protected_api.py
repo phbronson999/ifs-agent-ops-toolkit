@@ -1,8 +1,8 @@
 import json
 from typing import Literal, Optional
 
-from ifs_agent_ops.ifs.client import ApiCallOptions, call_protected_api as _call
-from ifs_agent_ops.ifs.auth.oauth_manager import OAuthManager
+from ifs_agent_ops.ifs.client import IfsClient
+from ifs_agent_ops.mcp_server.presenters import call_api
 
 _MAX_RESPONSE_SIZE = 100 * 1024  # 100 KB
 
@@ -45,18 +45,9 @@ async def handler(
     session_id: Optional[str],
     body: Optional[dict],
     headers: Optional[dict],
-    oauth_manager: OAuthManager,
+    client: IfsClient,
 ) -> str:
-    result = await _call(
-        ApiCallOptions(
-            endpoint=endpoint,
-            method=method,
-            session_id=session_id,
-            body=body,
-            headers=headers or {},
-        ),
-        oauth_manager,
-    )
+    result = await call_api(client, endpoint, method, session_id=session_id, body=body, headers=headers or {})
 
     if not result.success:
         return json.dumps({

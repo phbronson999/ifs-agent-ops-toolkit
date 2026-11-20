@@ -1,0 +1,24 @@
+{
+  "export_files": {},
+  "output": "{\n  \"error\": \"API call failed during export\",\n  \"batch\": 2,\n  \"records_exported_so_far\": 100,\n  \"details\": \"{'error': 'page failed'}\"\n}",
+  "requests": [
+    {
+      "body": "",
+      "headers": {
+        "accept": "application/json;odata.metadata=full;IEEE754Compatible=true",
+        "authorization": "Bearer test-token"
+      },
+      "method": "GET",
+      "url": "https://example.ifs.cloud/main/ifsapplications/projection/v1/Demo.svc/ThingSet?$top=100&$skip=0"
+    },
+    {
+      "body": "",
+      "headers": {
+        "accept": "application/json;odata.metadata=full;IEEE754Compatible=true",
+        "authorization": "Bearer test-token"
+      },
+      "method": "GET",
+      "url": "https://example.ifs.cloud/main/ifsapplications/projection/v1/Demo.svc/ThingSet?$top=100&$skip=100"
+    }
+  ]
+}

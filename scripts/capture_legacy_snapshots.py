@@ -27,7 +27,9 @@ def main() -> int:
     cases.SNAPSHOTS.mkdir(exist_ok=True)
     for case in cases.ALL_CASES:
         for name, content in case("legacy").items():
-            (cases.SNAPSHOTS / name).write_text(content, encoding="utf-8", newline="\n")
+            target = cases.SNAPSHOTS / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8", newline="\n")
             print(f"wrote {name}")
     return 0
 

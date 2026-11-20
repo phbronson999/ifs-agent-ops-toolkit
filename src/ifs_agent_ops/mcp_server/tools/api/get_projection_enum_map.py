@@ -2,126 +2,63 @@ import json
 import xml.etree.ElementTree as ET
 from typing import Optional
 
-import httpx
-
-from ifs_agent_ops.config import get_api_base_url
-from ifs_agent_ops.ifs.auth.oauth_manager import OAuthManager
-from ifs_agent_ops.ifs.auth.session_manager import get_current_session_id
-
-_NS = {
-    "edmx": "http://docs.oasis-open.org/odata/ns/edmx",
-    "edm":  "http://docs.oasis-open.org/odata/ns/edm",
-}
+from ifs_agent_ops.ifs.client import IfsClient
+from ifs_agent_ops.ifs.errors import AuthenticationRequired, IfsApiError
+from ifs_agent_ops.ifs.metadata.edmx import parse_edmx
+from ifs_agent_ops.ifs.paths import metadata_path
+from ifs_agent_ops.mcp_server.presenters import UNAUTHORIZED_SHORT, auth_message
 
 
 async def handler(
     projection_name: str,
     entity_set: Optional[str],
     include_reference_sets: bool,
-    oauth_manager: OAuthManager,
+    client: IfsClient,
 ) -> str:
-    session_id = get_current_session_id()
-    if not session_id:
+    try:
+        xml_text = await client.get_text(metadata_path(projection_name), accept="application/xml")
+    except AuthenticationRequired as err:
         return json.dumps({
             "error": "authentication_required",
-            "message": (
-                "No active session. Call the start_oauth tool now to open the login "
-                "window — do not ask the user to do this manually."
-            ),
+            "message": auth_message(err, unauthorized=UNAUTHORIZED_SHORT),
         }, indent=2)
-
-    try:
-        access_token = await oauth_manager.get_access_token(session_id)
-    except Exception as exc:
-        return json.dumps({"error": "authentication_required", "message": str(exc)}, indent=2)
-
-    endpoint = f"/main/ifsapplications/projection/v1/{projection_name}.svc/$metadata"
-    url = f"{get_api_base_url()}{endpoint}"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/xml",
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
-            resp = await client.get(url, headers=headers)
-
-        if resp.status_code in (401, 403):
-            return json.dumps({
-                "error": "authentication_required",
-                "message": "Session expired or unauthorised. Call start_oauth to re-authenticate.",
-            }, indent=2)
-
-        resp.raise_for_status()
-    except httpx.HTTPStatusError as exc:
+    except IfsApiError as err:
         return json.dumps({
             "error": "metadata_fetch_failed",
-            "status": exc.response.status_code,
-            "message": exc.response.text[:500],
+            "status": err.status,
+            "message": err.text[:500],
         }, indent=2)
     except Exception as exc:
         return json.dumps({"error": "metadata_fetch_failed", "message": str(exc)}, indent=2)
 
     try:
-        root = ET.fromstring(resp.text)
+        model = parse_edmx(xml_text)
     except ET.ParseError as exc:
         return json.dumps({"error": "metadata_parse_failed", "message": str(exc)}, indent=2)
 
-    # Pass 1 — collect all EnumType definitions across all Schema elements.
-    enum_defs: dict[str, list[str]] = {}  # fqn -> member names
-    for schema in root.findall(".//edm:Schema", _NS):
-        namespace = schema.get("Namespace", "")
-        for enum_el in schema.findall("edm:EnumType", _NS):
-            name = enum_el.get("Name", "")
-            fqn = f"{namespace}.{name}"
-            members = [m.get("Name", "") for m in enum_el.findall("edm:Member", _NS)]
-            enum_defs[fqn] = members
+    set_types = {name: es.entity_type for name, es in model.entity_sets.items()}
 
-    # Pass 2 — collect EntityType enum-typed properties and EntitySet -> EntityType map.
-    entity_enum_props: dict[str, dict[str, dict]] = {}  # entity_type_name -> {prop -> {enum_type, members}}
-    entity_set_map: dict[str, str] = {}  # entity_set_name -> fully qualified entity_type
-
-    for schema in root.findall(".//edm:Schema", _NS):
-        namespace = schema.get("Namespace", "")
-
-        for et_el in schema.findall("edm:EntityType", _NS):
-            et_name = et_el.get("Name", "")
-            props: dict[str, dict] = {}
-            for prop in et_el.findall("edm:Property", _NS):
-                prop_type = prop.get("Type", "")
-                if prop_type in enum_defs:
-                    props[prop.get("Name", "")] = {
-                        "enum_type": prop_type,
-                        "members": enum_defs[prop_type],
-                    }
-            entity_enum_props[f"{namespace}.{et_name}"] = props
-
-        container = schema.find("edm:EntityContainer", _NS)
-        if container is not None:
-            for es_el in container.findall("edm:EntitySet", _NS):
-                es_name = es_el.get("Name", "")
-                et_fqn = es_el.get("EntityType", "")
-                entity_set_map[es_name] = et_fqn
-
-    # Filter or enumerate entity sets.
     if entity_set:
-        if entity_set not in entity_set_map:
+        if entity_set not in set_types:
             return json.dumps({
                 "error": "entity_set_not_found",
                 "projection": projection_name,
                 "entity_set": entity_set,
-                "available": sorted(entity_set_map.keys()),
+                "available": sorted(set_types.keys()),
             }, indent=2)
-        sets_to_include = {entity_set: entity_set_map[entity_set]}
+        sets_to_include = {entity_set: set_types[entity_set]}
     else:
         sets_to_include = {
-            k: v for k, v in entity_set_map.items()
+            k: v for k, v in set_types.items()
             if include_reference_sets or not k.startswith("Reference_")
         }
 
     result_sets = []
     for es_name, et_fqn in sorted(sets_to_include.items()):
-        enum_props = entity_enum_props.get(et_fqn, {})
+        enum_props = {
+            prop: {"enum_type": enum.fqn, "members": enum.members}
+            for prop, enum in model.enum_properties(et_fqn).items()
+        }
         result_sets.append({
             "entity_set": es_name,
             "entity_type": et_fqn,

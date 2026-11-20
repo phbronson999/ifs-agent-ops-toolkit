@@ -26,3 +26,20 @@ History for that code remains in those repositories.
 - `.env` is still loaded from the repository root.
 - `SKILLS_DIR` must be repointed to `src/ifs_agent_ops/skills` in this repo.
 - Session/export/scratch locations under `~/.ifs-mcp/` are unchanged, so existing sessions keep working.
+
+## Phase 2: IFS client decoupled
+
+| Before | After |
+|---|---|
+| `lib/api_client.py` function + `ApiResponse` with LLM wording | `ifs/client.py` `IfsClient` (raises `ifs/errors.py` types); wording in `mcp_server/presenters.py` |
+| `lib/auth/oauth_manager.py` singleton reading env per call | `ifs/auth/pkce.py` `PkceAuth(settings, store)` |
+| `lib/auth/session_manager.py` + `token_store.py` module globals | `ifs/auth/token_store.py` `FileTokenStore(path)` (same file format and semantics) |
+| Callback server / login page inside the `start_oauth` tool | `ifs/auth/callback.py` |
+| EDMX fetch + parse inside `get_projection_enum_map` | `client.get_text()` + `ifs/metadata/edmx.py` neutral `EdmxModel` |
+| Pagination loop inside `export_api_data` | `IfsClient.paginate()` |
+| `verify=False` everywhere | OS trust store by default (`IFS_TLS_VERIFY`, `IFS_CA_BUNDLE`) |
+| `initialize_token_store()` at import | `mcp_server/runtime.py` `Runtime.from_env()` |
+
+Tool names, inputs and outputs are unchanged; 42 tool-level snapshots captured from the
+legacy server (`tests/snapshots/tools/`) verify this, including auth failure, refresh,
+pagination and session-file cases.

@@ -12,6 +12,7 @@ dependencies = [
     "mcp[cli]>=1.9.0,<2",  # v2 renamed FastMCP; migrate deliberately later
     "httpx>=0.27.0",
     "python-dotenv>=1.0.0",
+    "truststore>=0.9",  # verify IFS TLS against the OS trust store
 ]
 
 [project.optional-dependencies]

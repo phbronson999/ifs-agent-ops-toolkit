@@ -1,0 +1,14 @@
+{
+  "output": "{\n  \"status\": 204,\n  \"data\": \"\"\n}",
+  "requests": [
+    {
+      "body": "",
+      "headers": {
+        "accept": "application/json;odata.metadata=full;IEEE754Compatible=true",
+        "authorization": "Bearer test-token"
+      },
+      "method": "PATCH",
+      "url": "https://example.ifs.cloud/main/ifsapplications/projection/v1/Demo.svc/ThingSet"
+    }
+  ]
+}

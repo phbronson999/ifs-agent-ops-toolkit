@@ -1,0 +1,14 @@
+{
+  "output": "{\n  \"error\": \"metadata_fetch_failed\",\n  \"message\": \"connection refused\"\n}",
+  "requests": [
+    {
+      "body": "",
+      "headers": {
+        "accept": "application/xml",
+        "authorization": "Bearer test-token"
+      },
+      "method": "GET",
+      "url": "https://example.ifs.cloud/main/ifsapplications/projection/v1/CustomerOrderHandling.svc/$metadata"
+    }
+  ]
+}

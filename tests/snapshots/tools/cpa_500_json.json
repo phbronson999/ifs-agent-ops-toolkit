@@ -1,0 +1,14 @@
+{
+  "output": "{\n  \"error\": \"API call failed\",\n  \"status\": 500,\n  \"message\": \"{'error': {'code': 'ODP_X', 'message': 'boom'}}\",\n  \"details\": {\n    \"error\": {\n      \"code\": \"ODP_X\",\n      \"message\": \"boom\"\n    }\n  }\n}",
+  "requests": [
+    {
+      "body": "",
+      "headers": {
+        "accept": "application/json;odata.metadata=full;IEEE754Compatible=true",
+        "authorization": "Bearer test-token"
+      },
+      "method": "GET",
+      "url": "https://example.ifs.cloud/main/ifsapplications/projection/v1/Demo.svc/ThingSet"
+    }
+  ]
+}

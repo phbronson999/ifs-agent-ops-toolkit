@@ -1,12 +1,11 @@
 import json
 import time
 
-from ifs_agent_ops.ifs.auth.session_manager import get_current_session_id
-from ifs_agent_ops.ifs.auth.token_store import get as store_get
+from ifs_agent_ops.ifs.auth.token_store import FileTokenStore
 
 
-async def handler() -> str:
-    session_id = get_current_session_id()
+async def handler(store: FileTokenStore) -> str:
+    session_id = store.current_session_id()
 
     if not session_id:
         return json.dumps({
@@ -14,7 +13,7 @@ async def handler() -> str:
             "message": "No active session found. Please use start_oauth to authenticate.",
         }, indent=2)
 
-    session = store_get(session_id)
+    session = store.get(session_id)
     if not session:
         return json.dumps({
             "authenticated": False,

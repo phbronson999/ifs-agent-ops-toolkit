@@ -1,0 +1,4 @@
+{
+  "output": "{\n  \"authenticated\": true,\n  \"sessionId\": \"s1\",\n  \"expiresIn\": 0,\n  \"expiresInMinutes\": 0,\n  \"isExpired\": true,\n  \"canRefresh\": false,\n  \"userId\": \"s1\",\n  \"message\": \"Session expired but can be refreshed automatically on next API call\"\n}",
+  "requests": []
+}

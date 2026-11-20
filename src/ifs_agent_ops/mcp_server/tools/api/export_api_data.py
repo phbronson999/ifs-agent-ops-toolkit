@@ -1,13 +1,12 @@
-import io
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
-from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
 
-from ifs_agent_ops.ifs.client import ApiCallOptions, call_protected_api
-from ifs_agent_ops.ifs.auth.oauth_manager import OAuthManager
+from ifs_agent_ops.ifs.client import IfsClient
+from ifs_agent_ops.ifs.errors import AuthenticationRequired, IfsApiError
+from ifs_agent_ops.mcp_server.presenters import auth_message
 
 _BATCH_SIZE = 100
 _DELIMITER = ";"
@@ -32,23 +31,6 @@ def _build_csv(records: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _strip_pagination(endpoint: str) -> str:
-    if "?" not in endpoint:
-        return endpoint
-    base, qs = endpoint.split("?", 1)
-    params = parse_qs(qs, keep_blank_values=True)
-    params.pop("$top", None)
-    params.pop("$skip", None)
-    remaining = "&".join(
-        f"{k}={v}" for k, vs in params.items() for v in vs
-    )
-    return f"{base}?{remaining}" if remaining else base
-
-
-def _append_param(endpoint: str, param: str) -> str:
-    sep = "&" if "?" in endpoint else "?"
-    return f"{endpoint}{sep}{param}"
-
 
 async def handler(
     endpoint: str,
@@ -56,7 +38,7 @@ async def handler(
     filename: Optional[str],
     session_id: Optional[str],
     body: Optional[dict],
-    oauth_manager: OAuthManager,
+    client: IfsClient,
 ) -> str:
     output_filename = filename or "export"
 
@@ -64,40 +46,30 @@ async def handler(
     export_dir = Path(export_dir_env) if export_dir_env else (Path.home() / ".ifs-mcp" / "exports")
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
     output_path = export_dir / f"{output_filename}_{timestamp}.csv"
 
-    base_endpoint = _strip_pagination(endpoint)
     all_records: list[dict] = []
-    skip = 0
     batch_count = 0
 
     try:
-        while True:
-            batch_ep = _append_param(base_endpoint, f"$top={_BATCH_SIZE}&$skip={skip}")
-            result = await call_protected_api(
-                ApiCallOptions(endpoint=batch_ep, method=method, session_id=session_id, body=body),
-                oauth_manager,
-            )
-
-            if not result.success:
-                return json.dumps({
-                    "error": "API call failed during export",
-                    "batch": batch_count + 1,
-                    "records_exported_so_far": len(all_records),
-                    "details": result.message or result.error,
-                }, indent=2)
-
-            records = (result.data or {}).get("value") if isinstance(result.data, dict) else None
-            if not isinstance(records, list) or not records:
-                break
-
-            all_records.extend(records)
-            batch_count += 1
-            skip += _BATCH_SIZE
-
-            if len(records) < _BATCH_SIZE:
-                break
+        try:
+            async for records in client.paginate(
+                endpoint, method, body=body, session_id=session_id, page_size=_BATCH_SIZE
+            ):
+                all_records.extend(records)
+                batch_count += 1
+        except (AuthenticationRequired, IfsApiError) as err:
+            if isinstance(err, AuthenticationRequired):
+                details = auth_message(err) or "authentication_required"
+            else:
+                details = str(err.detail) or "API call failed"
+            return json.dumps({
+                "error": "API call failed during export",
+                "batch": batch_count + 1,
+                "records_exported_so_far": len(all_records),
+                "details": details,
+            }, indent=2)
 
         if not all_records:
             return json.dumps({"message": "No records found to export."}, indent=2)

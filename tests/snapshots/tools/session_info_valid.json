@@ -1,0 +1,4 @@
+{
+  "output": "{\n  \"authenticated\": true,\n  \"sessionId\": \"s1\",\n  \"expiresIn\": 3600,\n  \"expiresInMinutes\": 60,\n  \"isExpired\": false,\n  \"canRefresh\": true,\n  \"userId\": \"s1\",\n  \"message\": \"Session active and valid for 60 more minutes\"\n}",
+  "requests": []
+}
