@@ -269,13 +269,17 @@ Rules:
   until runtime validation succeeds.
 - Uncertainty that belongs to runtime validation is recorded as a requirement. It doesn't block
   technical approval, and it doesn't justify inventing an alternative call sequence ahead of evidence.
-- Technical approval is given at the level the human actually reviews.
-  `operations approve --capability <id>` approves a capability's operation set in one human ceremony.
-  Each operation still records its own approval, so a later change invalidates only that operation.
-  Single-operation approval remains available for exceptions.
-- **Direction (not yet implemented):** operation-level human attention should become increasingly
-  exception-driven. Clean operations reviewed as part of a capability need no individual attention.
-  Attention goes to:
+**Approval direction:**
+
+- **Capability approval is the primary human business gate.** It is the decision that a curated
+  contract may be used downstream.
+- **Capability-scoped operation approval is the normal technical workflow** when a group of operations
+  was reviewed together: `operations approve --capability <id>` runs one human ceremony. Each operation
+  still records its own approval, so a later change invalidates only that operation.
+- **Single-operation approval remains available** (`operations approve <id>`) for exceptions and manual
+  review.
+- **Operation review keeps moving toward exception-driven attention** instead of repetitive ceremony.
+  Clean operations reviewed as part of a capability need no individual attention. Attention goes to:
   - validation errors
   - technical-model ambiguity
   - conflicting evidence
@@ -283,7 +287,10 @@ Rules:
   - incomplete metadata or evidence
   - other explicit review findings
 
-  There is no automatic approval, and runtime validation never grants approval.
+  This is a direction, not yet implemented. There is no automatic approval.
+- **Approval and runtime validation stay separate.** Runtime validation never grants or revokes approval.
+  It focuses later (Phase 11) on actual execution: requests sent, errors, warnings and results against
+  a target.
 
 ### 6.3 Phase 11 design notes (learned in Phase 7b)
 
