@@ -81,3 +81,22 @@ mcp_server_port = 8001
   flags shared ports and shows each profile's sign-in state.
 - Unchanged for now: export/scratch defaults stay under `~/.ifs-mcp/` (they are named in tool
   descriptions covered by the parity snapshot).
+
+## Phase 4: recordings and analysis split
+
+| Layer | Module | Purpose |
+|---|---|---|
+| Evidence | `recordings/har.py` | `load_har()` -> ordered `ObservedCall` list: every entry, headers, bodies, status. `payload()` unwraps IFS server-trace envelopes |
+| Evidence | `recordings/sanitize.py` | `sanitize_har()` -> copy without credentials, `_initiator`, `serverIPAddress`, trace infrastructure details or SQL bind values |
+| Analysis | `analysis/odata.py` | projection URL + OData query parsing, `$filter` anonymisation |
+| Analysis | `analysis/grouping.py`, `summary.py` | legacy grouped view (`parse_har_file` output, unchanged) |
+| Analysis | `analysis/sequence.py` | ordered view + data flow (keys, body values, ETag -> If-Match) |
+
+- New MCP tool `analyze_recording`; new CLI `ifs-agent-ops har sanitize IN OUT` and `har analyze IN`.
+- Recordings made with **IFS server tracing** on wrap each response as
+  `{"request","response","server","ifs-trace"}`; the OData payload is the string `response.body`.
+  The sequence view unwraps it. The legacy grouped view does not (its unprinted `response_sample`
+  was always the envelope skeleton for such recordings) and is kept as-is for parity.
+- Sanitizing keeps business data values and host names; review before sharing outside the organisation.
+- Optional local parity check on real recordings:
+  `IFS_LEGACY_SRC=<legacy src> IFS_REAL_HAR_DIR=<har folder> pytest tests/test_real_har_parity.py`

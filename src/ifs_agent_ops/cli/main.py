@@ -64,11 +64,49 @@ def cmd_profiles(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_har_sanitize(args: argparse.Namespace) -> int:
+    import json
+    from pathlib import Path
+
+    from ifs_agent_ops.recordings.sanitize import sanitize_har
+
+    src, dst = Path(args.input), Path(args.output)
+    if dst.resolve() == src.resolve() and not args.in_place:
+        print("error: output is the input file; pass --in-place to overwrite it", file=sys.stderr)
+        return 2
+    har = json.loads(src.read_text(encoding="utf-8"))
+    clean, report = sanitize_har(har)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(json.dumps(clean, ensure_ascii=False), encoding="utf-8")
+    print(f"{src} ({src.stat().st_size // 1024} KB) -> {dst} ({dst.stat().st_size // 1024} KB)")
+    for k, v in sorted(report.items()):
+        print(f"  {k}: {v}")
+    print("note: business data values are kept; review before sharing outside your organisation.")
+    return 0
+
+
+def cmd_har_analyze(args: argparse.Namespace) -> int:
+    from ifs_agent_ops.analysis.sequence import build_sequence, render_sequence
+    from ifs_agent_ops.recordings.har import load_har
+
+    views, links = build_sequence(load_har(args.input))
+    print(render_sequence(views, links, include_other=args.all))
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="ifs-agent-ops")
     parser.add_argument("--version", action="store_true", help="print the toolkit version")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("profiles", help="list IFS environment profiles and their sign-in state")
+    har = sub.add_parser("har", help="work with browser HAR recordings").add_subparsers(dest="har_command", required=True)
+    s_san = har.add_parser("sanitize", help="remove credentials, trace infrastructure details and _initiator")
+    s_san.add_argument("input")
+    s_san.add_argument("output")
+    s_san.add_argument("--in-place", action="store_true", help="allow output to overwrite input")
+    s_an = har.add_parser("analyze", help="print the recorded call sequence and data flow")
+    s_an.add_argument("input")
+    s_an.add_argument("--all", action="store_true", help="include non-IFS requests")
     args = parser.parse_args(argv)
     load_env()
 
@@ -80,6 +118,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
     if args.command == "profiles":
         return cmd_profiles(args)
+    if args.command == "har":
+        return cmd_har_sanitize(args) if args.har_command == "sanitize" else cmd_har_analyze(args)
     parser.print_help()
     return 0
 

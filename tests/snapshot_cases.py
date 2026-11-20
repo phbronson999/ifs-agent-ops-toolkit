@@ -444,6 +444,15 @@ def tool_outputs(flavor: str) -> dict[str, str]:
     return out
 
 
+LEGACY_TOOL_NAMES = {
+    "start_oauth", "get_session_info", "call_protected_api", "get_api_guide", "export_api_data",
+    "import_skill", "save_skill", "save_to_scratch", "parse_har_file", "read_openapi_file",
+    "get_projection_enum_map",
+}
+# Tools added by the toolkit (not in the legacy server). Each addition is deliberate.
+ADDED_TOOL_NAMES = {"analyze_recording"}
+
+
 def mcp_surface(flavor: str) -> dict[str, str]:
     """Tool and prompt definitions exposed by the server (name excluded: it changed by design)."""
     server = _mod(flavor, "server")
@@ -454,6 +463,7 @@ def mcp_surface(flavor: str) -> dict[str, str]:
         return tools, prompts
 
     tools, prompts = asyncio.run(collect())
+    tools = [t for t in tools if t.name in LEGACY_TOOL_NAMES]  # added tools are checked separately
     data = {
         "tools": sorted(
             (

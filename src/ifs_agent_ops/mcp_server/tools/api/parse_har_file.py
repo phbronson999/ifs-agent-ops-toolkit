@@ -1,4 +1,4 @@
-from ifs_agent_ops.analysis.har_legacy import parse_har, summarise_har
+from ifs_agent_ops.analysis.har_legacy import parse_har, summarise_har  # grouped view (legacy output)
 
 
 async def handler(path: str) -> str:
