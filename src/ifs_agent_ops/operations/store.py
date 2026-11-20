@@ -132,12 +132,14 @@ def merge_draft(package: Package, drafted_ops: dict[str, Operation], drafted_wfs
     return report
 
 
-def approve(package: Package, op_id: str) -> Operation:
+def approve(package: Package, op_id: str, reviewer: str | None = None) -> Operation:
+    """Record technical approval. The CLI only calls this after an interactive human confirmation."""
     ops = load_operations(package)
     if op_id not in ops:
         raise KeyError(f"No operation {op_id!r} in {package.name}")
     op = ops[op_id]
     op = op.model_copy(update={"status": "approved", "approval": Approval(
-        approved_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), revision=op.revision)})
+        approved_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), revision=op.revision,
+        approved_by=reviewer)})
     save_operation(package, op)
     return op

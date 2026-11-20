@@ -215,9 +215,128 @@ def cmd_operations(args: argparse.Namespace) -> int:
             if errors:
                 print(f"refused: {args.operation} has validation errors\n{text}", file=sys.stderr)
                 return 1
-            op = approve(package, args.operation)
-            print(f"approved {op.id} (revision {op.revision})")
+            print(service.show(package, args.operation))
+            reviewer = human_confirmation("operation", args.operation,
+                                          "Technical approval: this canonical definition accurately represents the "
+                                          "IFS operation. It does NOT expose the operation to agents.")
+            if reviewer is None:
+                return 1
+            op = approve(package, args.operation, reviewer)
+            print(f"approved {op.id} (revision {op.revision}) by {reviewer}")
     except (PackageError, FileNotFoundError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def _is_interactive() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _ask(prompt: str) -> str:
+    return input(prompt)
+
+
+def _confirmation_code() -> str:
+    import secrets
+
+    return secrets.token_hex(3).upper()
+
+
+def human_confirmation(kind: str, target_id: str, meaning: str) -> Optional[str]:
+    """Approval gate: interactive terminal, a one-time code and the id typed back, and a name.
+
+    Returns the reviewer name, or None when refused. Automated callers (scripts, agents, CI, pipes,
+    or a null stdin, which Windows reports as a terminal) are refused: they either have no
+    terminal, hit end-of-input, or cannot know the one-time code printed only now.
+    """
+    if not _is_interactive():
+        print(f"refused: approving this {kind} requires a human at an interactive terminal "
+              "(no automation, agents or pipes)", file=sys.stderr)
+        return None
+    code = _confirmation_code()
+    print(f"\n{meaning}\n\nOne-time confirmation code: {code}\n")
+    try:
+        if _ask("Type the confirmation code: ").strip().upper() != code:
+            print("refused: the confirmation code did not match", file=sys.stderr)
+            return None
+        if _ask(f"Type the {kind} id to approve it: ").strip() != target_id:
+            print("refused: the id did not match", file=sys.stderr)
+            return None
+        reviewer = _ask("Your name (recorded with the approval): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print(f"\nrefused: approving this {kind} needs interactive input from a human", file=sys.stderr)
+        return None
+    if not reviewer:
+        print("refused: a reviewer name is required", file=sys.stderr)
+        return None
+    return reviewer
+
+
+def cmd_capabilities(args: argparse.Namespace) -> int:
+    import json
+
+    from collections import Counter
+
+    from ifs_agent_ops.operations.capability import json_schema
+    from ifs_agent_ops.operations.capability_review import write_review
+    from ifs_agent_ops.operations.capability_store import ApprovalRefused, approve_capability, load_capabilities
+    from ifs_agent_ops.operations.capability_validate import validate_capability
+    from ifs_agent_ops.operations.store import load_operations, load_workflows
+    from ifs_agent_ops.workspace.discovery import find_package
+    from ifs_agent_ops.workspace.package import PackageError
+
+    if args.capabilities_command == "schema":
+        print(json.dumps(json_schema(), indent=2))
+        return 0
+    try:
+        package = find_package(args.package)
+        caps = load_capabilities(package)
+        ops = load_operations(package)
+        cap_id = getattr(args, "capability", None)
+        if cap_id and cap_id not in caps:
+            raise KeyError(f"No capability {cap_id!r} in {package.name} (have: {', '.join(caps) or 'none'})")
+        if args.capabilities_command == "list":
+            if not caps:
+                print(f"{package.name} has no capabilities yet (capabilities/<id>.yaml)")
+            for cap in caps.values():
+                c = Counter(f.severity for f in validate_capability(cap, ops))
+                print(f"{cap.status:<9} rev {cap.revision:<3} {cap.id:<32} {c.get('error', 0)} error(s), "
+                      f"{c.get('warning', 0)} warning(s), {len(cap.review_notes)} open question(s)")
+            return 0
+        if args.capabilities_command == "validate":
+            errors = 0
+            for cap in ([caps[cap_id]] if cap_id else caps.values()):
+                for f in validate_capability(cap, ops):
+                    errors += f.severity == "error"
+                    print(f"{f.severity:<8} {cap.id}: {f.where}: {f.rule}: {f.message}")
+            return 1 if errors else 0
+        if args.capabilities_command == "review":
+            path = write_review(package, caps[cap_id], ops, load_workflows(package))
+            print(f"review report: {path}")
+            return 0
+        if args.capabilities_command == "approve":
+            cap = caps[cap_id]
+            path = write_review(package, cap, ops, load_workflows(package))
+            print(f"Review report: {path}")
+            if cap.review_notes:
+                print(f"\n{len(cap.review_notes)} open question(s) recorded by the author:")
+                for n in cap.review_notes:
+                    print(f"  - {n}")
+            reviewer = human_confirmation(
+                "capability", cap_id,
+                "Capability approval: this is the intentional and safe business contract that downstream "
+                "agents and applications may use. Approval pins this exact content and the revisions of "
+                "the operations it uses.")
+            if reviewer is None:
+                return 1
+            approved = approve_capability(package, cap_id, reviewer)
+            print(f"approved {approved.id} (revision {approved.revision}) by {reviewer}")
+            return 0
+    except ApprovalRefused as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+    except (PackageError, KeyError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 0
@@ -292,6 +411,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     o_appr.add_argument("--package", required=True)
     ops.add_parser("schema", help="print the JSON Schema of operations and workflows")
 
+    caps = sub.add_parser("capabilities", help="curated capabilities (agent-facing business contracts)").add_subparsers(
+        dest="capabilities_command", required=True)
+    c_list = caps.add_parser("list", help="list capabilities with status and validation counts")
+    c_list.add_argument("--package", required=True)
+    for name, helptext in (("validate", "validate a capability (or all) against its canonical operations"),
+                           ("review", "write the human review report to <package>/.ifs-agent-ops/review/"),
+                           ("approve", "human approval (interactive terminal only)")):
+        sp = caps.add_parser(name, help=helptext)
+        sp.add_argument("capability", nargs="?" if name == "validate" else None)
+        sp.add_argument("--package", required=True)
+    caps.add_parser("schema", help="print the JSON Schema of capabilities")
+
     args = parser.parse_args(argv)
     load_env()
 
@@ -303,6 +434,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_metadata(args)
     if args.command == "operations":
         return cmd_operations(args)
+    if args.command == "capabilities":
+        return cmd_capabilities(args)
 
     if args.version:
         try:

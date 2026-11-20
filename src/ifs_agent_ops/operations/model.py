@@ -95,6 +95,7 @@ class Evidence(_Model):
 class Approval(_Model):
     approved_at: str
     revision: int
+    approved_by: Optional[str] = Field(None, description="Human reviewer (recorded from Phase 7b on)")
 
 
 class Operation(_Model):

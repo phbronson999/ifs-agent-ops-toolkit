@@ -231,13 +231,23 @@ def test_validators_flag_ifs_traps(pkg):
 def test_approval_is_refused_while_errors_exist(pkg, monkeypatch, capsys):
     from ifs_agent_ops.cli.main import main
 
+    from ifs_agent_ops.cli import main as cli
+
     monkeypatch.setenv("IFS_AGENT_OPS_PACKAGES", str(pkg.root))
     assert main(["operations", "draft", "--package", "ifs-orders"]) == 0
     assert main(["operations", "approve", "OrderHandling.action.ValidateThing", "--package", "ifs-orders"]) == 1
     assert "refused" in capsys.readouterr().err
+    # no interactive terminal (automation, agents, pipes): refused even for a valid operation
+    assert main(["operations", "approve", "OrderHandling.create.OrderSet", "--package", "ifs-orders"]) == 1
+    assert "interactive terminal" in capsys.readouterr().err
+    answers = iter(["C0DE42", "OrderHandling.create.OrderSet", "Pat Reviewer"])
+    monkeypatch.setattr(cli, "_is_interactive", lambda: True)
+    monkeypatch.setattr(cli, "_confirmation_code", lambda: "C0DE42")
+    monkeypatch.setattr(cli, "_ask", lambda prompt: next(answers))
     assert main(["operations", "approve", "OrderHandling.create.OrderSet", "--package", "ifs-orders"]) == 0
     op = load_operations(pkg)["OrderHandling.create.OrderSet"]
     assert op.status == "approved" and op.approval.revision == op.revision
+    assert op.approval.approved_by == "Pat Reviewer"
     assert main(["operations", "validate", "--package", "ifs-orders"]) == 1  # errors remain elsewhere
 
 
