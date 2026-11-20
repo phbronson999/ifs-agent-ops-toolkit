@@ -207,35 +207,59 @@ def cmd_operations(args: argparse.Namespace) -> int:
         elif args.operations_command == "show":
             print(service.show(package, args.operation))
         elif args.operations_command == "validate":
+            if args.output == "json":
+                from dataclasses import asdict
+
+                from ifs_agent_ops.operations.store import load_operations
+                from ifs_agent_ops.operations.validate import validate_all
+
+                findings = [asdict(f) for f in validate_all(load_operations(package))
+                            if (args.operation is None or f.operation == args.operation)
+                            and (args.all or f.severity != "info")]
+                print(json.dumps({"schema": "ifs-agent-ops/operation-validation", "schema_version": 1,
+                                  "package": package.name, "findings": findings}, indent=2))
+                return 1 if any(f["severity"] == "error" for f in findings) else 0
             text, errors = service.validation_report(package, args.operation, include_info=args.all)
             print(text)
             return 1 if errors else 0
         elif args.operations_command == "review":
-            from ifs_agent_ops.operations.operation_review import render_summary, to_json, write_document
+            from ifs_agent_ops.cli.review_view import make_console, render_operation, render_review_set
+            from ifs_agent_ops.operations.operation_review import to_json
+            from ifs_agent_ops.operations.review_markdown import write_review_artifacts
 
-            reviews, name, title = service.operation_reviews(package, args.operation, args.capability)
-            if args.json:
-                print(to_json(reviews))
+            if args.capability and args.operation:
+                raise KeyError("give operation ids or --capability, not both")
+            review_set, name = service.operation_reviews(package, args.operation, args.capability)
+            if args.output == "json":
+                print(to_json(review_set))  # the structured result itself; no files written
                 return 0
-            path = write_document(package, reviews, name, title)
-            for r in reviews:
-                print(render_summary(r) + "\n")
-            print(f"review report: {path}")
+            detail = "full" if args.full else "details" if args.details else "summary"
+            console = make_console()
+            if len(review_set["operations"]) == 1 and not args.capability:
+                render_operation(console, review_set["operations"][0], package.name, detail)
+            else:
+                render_review_set(console, review_set, package.name, detail)
+            doc, appendices = write_review_artifacts(package, review_set, name)
+            console.print()
+            console.print(f"review document: {doc}", markup=False, highlight=False)
+            console.print(f"technical appendix: {doc.parent / 'appendix'} ({len(appendices)} file(s))",
+                          markup=False, highlight=False)
         elif args.operations_command == "approve":
-            from ifs_agent_ops.operations.operation_review import MEANING, render_summary, write_document
+            from ifs_agent_ops.cli.review_view import make_console, render_approval
+            from ifs_agent_ops.operations.review_markdown import appendix_name, write_review_artifacts
 
             text, errors = service.validation_report(package, args.operation)
             if errors:
                 print(f"refused: {args.operation} has validation errors\n{text}", file=sys.stderr)
                 return 1
-            reviews, name, title = service.operation_reviews(package, [args.operation])
-            path = write_document(package, reviews, name, title)
-            print(render_summary(reviews[0]))
-            print(f"\nFull technical review: {path}")
-            reviewer = human_confirmation("operation", reviews[0]["id"], MEANING)
+            review_set, name = service.operation_reviews(package, [args.operation])
+            r = review_set["operations"][0]
+            doc, _ = write_review_artifacts(package, review_set, name)
+            render_approval(make_console(), r, package.name, str(doc.parent / appendix_name(r["id"])))
+            reviewer = human_confirmation("operation", r["id"], f"Technical approval of {r['id']}.")
             if reviewer is None:
                 return 1
-            op = approve(package, reviews[0]["id"], reviewer)
+            op = approve(package, r["id"], reviewer)
             print(f"approved {op.id} (revision {op.revision}) by {reviewer}")
     except (PackageError, FileNotFoundError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -319,10 +343,20 @@ def cmd_capabilities(args: argparse.Namespace) -> int:
                       f"{c.get('warning', 0)} warning(s), {len(cap.review_notes)} open question(s)")
             return 0
         if args.capabilities_command == "validate":
-            errors = 0
-            for cap in ([caps[cap_id]] if cap_id else caps.values()):
-                for f in validate_capability(cap, ops):
-                    errors += f.severity == "error"
+            from dataclasses import asdict
+
+            selected = [caps[cap_id]] if cap_id else list(caps.values())
+            results = [(cap, validate_capability(cap, ops)) for cap in selected]
+            errors = sum(f.severity == "error" for _, fs in results for f in fs)
+            if args.output == "json":
+                print(json.dumps({"schema": "ifs-agent-ops/capability-validation", "schema_version": 1,
+                                  "package": package.name,
+                                  "capabilities": [{"id": cap.id, "status": cap.status, "revision": cap.revision,
+                                                    "findings": [asdict(f) for f in fs]} for cap, fs in results]},
+                                 indent=2))
+                return 1 if errors else 0
+            for cap, fs in results:
+                for f in fs:
                     print(f"{f.severity:<8} {cap.id}: {f.where}: {f.rule}: {f.message}")
             return 1 if errors else 0
         if args.capabilities_command == "review":
@@ -354,6 +388,12 @@ def cmd_capabilities(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 0
+
+
+def _add_output(parser: argparse.ArgumentParser) -> None:
+    """Output contract: human text by default; --output json is the structured result for automation."""
+    parser.add_argument("--output", choices=["text", "json"], default="text",
+                        help="text (human, default) or json (structured, no ANSI, deterministic)")
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -417,6 +457,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if name == "validate":
             sp.add_argument("--operation")
             sp.add_argument("--all", action="store_true", help="include info findings")
+            _add_output(sp)
     o_show = ops.add_parser("show", help="print one operation with its findings")
     o_show.add_argument("operation", help="operation id (or a unique part of it)")
     o_show.add_argument("--package", required=True)
@@ -425,7 +466,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     o_rev.add_argument("operation", nargs="*", help="operation id(s) (or unique parts)")
     o_rev.add_argument("--capability", help="review every operation the capability uses")
     o_rev.add_argument("--package", required=True)
-    o_rev.add_argument("--json", action="store_true", help="print the structured review data instead")
+    depth = o_rev.add_mutually_exclusive_group()
+    depth.add_argument("--details", action="store_true", help="add request fields, headers, evidence and grouped "
+                                                              "finding members")
+    depth.add_argument("--full", action="store_true", help="add every response field, composite members and every "
+                                                           "finding ungrouped")
+    _add_output(o_rev)
     o_appr = ops.add_parser("approve", help="technical approval by a human (interactive terminal only)")
     o_appr.add_argument("operation")
     o_appr.add_argument("--package", required=True)
@@ -441,6 +487,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         sp = caps.add_parser(name, help=helptext)
         sp.add_argument("capability", nargs="?" if name == "validate" else None)
         sp.add_argument("--package", required=True)
+        if name == "validate":
+            _add_output(sp)
     caps.add_parser("schema", help="print the JSON Schema of capabilities")
 
     args = parser.parse_args(argv)

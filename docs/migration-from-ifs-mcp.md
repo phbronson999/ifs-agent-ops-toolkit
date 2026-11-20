@@ -217,22 +217,41 @@ review. It validates with only human blockers: its 9 operations are not yet tech
 
 ### Technical operation review (Phase 7b follow-up)
 
-`operations review <id>... | --capability <id> --package <p> [--json]` writes a technical review to
-`<package>/.ifs-agent-ops/review/operations/`. The structured data comes first (`--json`), and the
-Markdown is rendered from it. For each operation it shows:
+One structured review result (`operations/operation_review.py`) feeds four presentations, none of
+which computes facts of its own:
 
-- kind, method, the full IFS path, metadata element and snapshot, revision, and the technical content hash
-- path, query and body parameters with types, enums and composite-structure members
-- headers, ETag/If-Match and warning-header behaviour
-- the response shape, keys and returned identifiers
-- evidence, observed value *shapes* from the sanitized recordings (never values), and the data flow
-- which capabilities use it
-- validation findings
-- explicit reviewer checks, e.g. parameter aliases, unquoted `null` keys, enum literals, composite
-  structures, time zones and web-client-only headers
+| Presentation | How to get it |
+|---|---|
+| Capability overview (terminal) | `operations review --capability <id> --package <p>` |
+| One operation: summary, then deeper | `operations review <op-id> --package <p> [--details \| --full]` |
+| Markdown | `<package>/.ifs-agent-ops/review/operations/<name>.md`, the concise review document, plus `appendix/<op-id>.md`, the exhaustive technical detail per operation |
+| JSON | `--output json`, the structured result itself: deterministic, no ANSI, no files written |
 
-`operations approve` shows the same summary before the unchanged human gate. Approval now also pins the
-technical content hash: editing the definition afterwards raises `changed-since-approval`.
+**Findings.** Every finding has a level:
+
+- `blocking`: validation error
+- `open`: a recorded open question
+- `check`: something the reviewer must confirm
+- `info`
+- `known`: classified web-client behaviour, such as the Prefer wait header, excluded from the contract
+
+Equivalent findings are grouped (for example, "24 decimal fields ... IEEE754Compatible") and keep their
+field lists. The operation **state** is derived from the levels and approval data alone:
+
+- BLOCKED: there is a blocking finding
+- APPROVED: the approval is current and nothing is blocking
+- UNRESOLVED: there is an open question
+- CHECK: there are checks to confirm
+- READY: otherwise
+
+The terminal views use Rich. In an interactive terminal they use colour for state only. When output is
+redirected, they print ASCII, no colour and a fixed width, so the output is deterministic. `NO_COLOR` is
+honoured.
+
+`operations approve` shows the operation summary, a YOU ARE APPROVING / YOU ARE NOT APPROVING panel, and
+any unresolved questions and checks before the unchanged human gate. Approval also pins the technical
+content hash, so editing the definition afterwards raises `changed-since-approval`. `--output json` is
+also available on `operations validate` and `capabilities validate`.
 
 Operations can carry `review_notes` (open technical questions) and a `description` (verified facts). Both
 are human text, kept on re-draft and excluded from the hash. The drafter now keeps IFS parameter aliases

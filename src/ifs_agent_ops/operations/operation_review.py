@@ -1,7 +1,8 @@
 """Technical review of canonical operations, for the human who approves them.
 
 ``build_operation_review`` gathers everything a reviewer needs as plain, JSON-serialisable data
-(the core result); ``render_markdown`` / ``render_summary`` only present it. Observed examples come
+(the core result). Every presentation (terminal views in ``cli.review_view``, Markdown in
+``operations.review_markdown``, JSON) is rendered from that result and nothing else. Observed examples come
 from the package's *sanitized* recordings and are reduced to value shapes, so no business values
 appear in a review.
 
@@ -42,7 +43,7 @@ def _type_text(t: Optional[TypeRef]) -> str:
         return "?"
     out = t.edm
     if t.enum:
-        members = ", ".join(t.members[:8]) + (", …" if len(t.members) > 8 else "")
+        members = ", ".join(t.members[:8]) + (", ..." if len(t.members) > 8 else "")
         out += f" (enum: {members})"
     return out + ("" if t.nullable else ", non-nullable")
 
@@ -129,68 +130,182 @@ def _add(target: dict, key: str, value: str) -> None:
         target[key].append(value)
 
 
-def _technical_flags(op: Operation, model: Optional[EdmxModel], obs: dict) -> list[str]:
-    """Things a reviewer should consciously check; not errors."""
-    flags = []
+
+
+# ── findings, grouping and state ─────────────────────────────────────────────
+#
+# Every finding has a level. The order below is also the order of attention:
+#   blocking  validation error; approval is refused
+#   open      an open technical question recorded on the operation (review_notes)
+#   check     something the reviewer must consciously confirm (validator warnings, review checks)
+#   info      informational validator findings
+#   known     classified web-client behaviour, excluded from the canonical contract
+LEVELS = ("blocking", "open", "check", "info", "known")
+_VALIDATOR_LEVEL = {"error": "blocking", "warning": "check", "info": "info"}
+
+# States, derived only from findings and approval data (never from a judgement):
+#   BLOCKED     at least one blocking finding
+#   APPROVED    approved, approval current, nothing blocking
+#   UNRESOLVED  at least one open question
+#   CHECK       reviewer checks to confirm, no open questions
+#   READY       only informational or known findings
+STATES = ("BLOCKED", "UNRESOLVED", "CHECK", "READY", "APPROVED")
+
+NOT_APPROVING = ["agent exposure", "connector exposure", "every field as agent input", "business authorization",
+                 "capability use"]
+
+GROUP_SUMMARY = {
+    "numeric-as-string": "{n} decimal field(s) observed using IEEE754Compatible string serialization; callers "
+                         "must keep that Content-Type convention or send JSON numbers.",
+    "write-datetime-format": "{n} date/time field(s) were sent in a format IFS accepted; keep that format.",
+    "datetime-zone": "{n} Edm.DateTimeOffset field(s): confirm how IFS interprets the time zone.",
+    "null-unquoted-key": "{n} quoted string key(s) were sent as an unquoted null; callers must emit null "
+                         "without quotes.",
+    "composite-parameter": "{n} composite IFS structure(s); required members and their sources must be "
+                           "proven before a caller can build them.",
+    "client-prefer-header": "Prefer wait header sent by the IFS web client (client behaviour, excluded from "
+                            "the API contract).",
+    "required-not-observed": "{n} required parameter(s) never observed in a recording.",
+}
+
+
+def _finding(source: str, code: str, level: str, message: str, subject: Optional[str] = None) -> dict:
+    return {"source": source, "code": code, "level": level, "subject": subject, "message": message}
+
+
+def _review_checks(op: Operation, model: Optional[EdmxModel], obs: dict) -> list[dict]:
+    """Things a reviewer should consciously confirm, plus classified client behaviour."""
+    out = []
     for p in op.path_parameters:
         if any(pl.alias for pl in p.placements):
-            flags.append(f"{p.name} is sent as a parameter alias ({p.name}=@{p.name}) with its value as JSON in "
-                         f"the query string (@{p.name}=<json>).")
+            out.append(_finding("review", "alias-parameter", "check",
+                                f"{p.name} is sent as a parameter alias ({p.name}=@{p.name}) with its value as "
+                                f"JSON in the query string (@{p.name}=<json>).", p.name))
         if p.type and p.type.edm == "Edm.String" and "null" in obs["path_values"].get(p.name, []):
-            flags.append(f"{p.name} is a quoted string key but was sent as an unquoted null; callers must emit "
-                         "`null` without quotes.")
+            out.append(_finding("review", "null-unquoted-key", "check",
+                                f"{p.name} is a quoted string key but was sent as an unquoted null; callers must "
+                                "emit null without quotes.", p.name))
         if p.type and p.type.enum and not any(pl.quoted for pl in p.placements):
-            flags.append(f"{p.name} is an enum key; send the fully qualified literal {p.type.enum}'<Member>', "
-                         "not a bare string.")
+            out.append(_finding("review", "enum-literal-key", "check",
+                                f"{p.name} is an enum key; send the fully qualified literal "
+                                f"{p.type.enum}'<Member>', not a bare string.", p.name))
         if _structure(model, p.type.edm if p.type else None):
-            flags.append(f"{p.name} is a composite IFS structure; its required members and their sources must "
-                         "be proven before a caller can build it.")
+            out.append(_finding("review", "composite-parameter", "check",
+                                f"{p.name} is a composite IFS structure; its required members and their sources "
+                                "must be proven before a caller can build it.", p.name))
     for b in op.body:
         if _structure(model, b.type.edm if b.type else None):
-            flags.append(f"body {b.name} is a composite IFS structure; its required members and their sources "
-                         "must be proven before a caller can build it.")
+            out.append(_finding("review", "composite-parameter", "check",
+                                f"body {b.name} is a composite IFS structure; its required members and their "
+                                "sources must be proven before a caller can build it.", b.name))
         if b.type and b.type.edm == "Edm.DateTimeOffset" and b.observed:
-            flags.append(f"body {b.name} is Edm.DateTimeOffset, observed as {', '.join(b.observed)}; confirm "
-                         "how IFS interprets the time zone for this field.")
+            out.append(_finding("review", "datetime-zone", "check",
+                                f"body {b.name} is Edm.DateTimeOffset, observed as {', '.join(b.observed)}; "
+                                "confirm how IFS interprets the time zone for this field.", b.name))
     if "prefer" in obs["request_headers"]:
-        flags.append("Prefer (" + ", ".join(obs["request_headers"]["prefer"]) + ") was sent by the IFS web "
-                     "client; it is client behaviour, not part of the API contract.")
+        out.append(_finding("review", "client-prefer-header", "known",
+                            "Prefer (" + ", ".join(obs["request_headers"]["prefer"]) + ") was sent by the IFS web "
+                            "client; it is client behaviour, not part of the API contract.", "Prefer"))
     if op.method == "POST" and op.kind == "create" and "etag" in obs["response_headers"]:
-        flags.append("Create returns an ETag; a later update or bound action on the new record must send it "
-                     "as If-Match.")
-    return flags
+        out.append(_finding("review", "create-returns-etag", "info",
+                            "Create returns an ETag; a later update or bound action on the new record must send it "
+                            "as If-Match.", "ETag"))
+    return out
+
+
+def group_findings(findings: list[dict]) -> list[dict]:
+    """Collapse equivalent findings (same level and code) without losing their members."""
+    groups: dict[tuple[str, str], dict] = {}
+    for f in findings:
+        g = groups.setdefault((f["level"], f["code"]), {"level": f["level"], "code": f["code"], "count": 0,
+                                                        "subjects": [], "messages": []})
+        g["count"] += 1
+        if f["subject"] and f["subject"] not in g["subjects"]:
+            g["subjects"].append(f["subject"])
+        g["messages"].append(f["message"])
+    out = []
+    for g in groups.values():
+        n = len(g["subjects"]) or g["count"]
+        template = GROUP_SUMMARY.get(g["code"], "{n} x " + g["code"] + ": " + g["messages"][0])
+        g["summary"] = g["messages"][0] if g["count"] == 1 else template.format(n=n)
+        out.append(g)
+    return sorted(out, key=lambda g: (LEVELS.index(g["level"]), g["code"]))
+
+
+def derive_state(findings: list[dict], status: str, approval_current: bool) -> str:
+    levels = {f["level"] for f in findings}
+    if "blocking" in levels:
+        return "BLOCKED"
+    if status == "approved" and approval_current:
+        return "APPROVED"
+    if "open" in levels:
+        return "UNRESOLVED"
+    if "check" in levels:
+        return "CHECK"
+    return "READY"
+
+
+def _request_usage(op: Operation, ops: dict[str, Operation], capabilities: dict) -> list[dict]:
+    """How each capability step that uses the operation supplies its request (from the capability)."""
+    from ifs_agent_ops.operations.capability_validate import field_sources
+
+    types = {b.name: (b.type.edm if b.type else None) for b in op.body}
+    types.update({p.name: (p.type.edm if p.type else None) for p in op.path_parameters})
+    out = []
+    for cap in capabilities.values():
+        for step in cap.steps:
+            if step.operation != op.id:
+                continue
+            explicit = []
+            for target, src in step.bindings.items():
+                where, _, name = target.partition(".")
+                value = getattr(src, src.kind)
+                detail = f"{src.step}.{src.field}" if src.kind == "step" else ("null" if value is None else str(value))
+                explicit.append({"target": target, "location": where, "name": name, "source": src.kind,
+                                 "detail": detail, "type": types.get(name)})
+            counts: dict[str, int] = {}
+            kinds: dict[str, str] = {}
+            if op.body and step.role == "write":
+                for fs in field_sources(cap, step, op, ops):
+                    counts[fs.kind] = counts.get(fs.kind, 0) + 1
+                    kinds[fs.field] = fs.kind
+            out.append({"capability": cap.id, "capability_status": cap.status, "step": step.id, "role": step.role,
+                        "for_each": step.for_each, "body_from": step.body_from, "bindings": explicit,
+                        "body_field_sources": dict(sorted(counts.items())), "body_field_kinds": kinds})
+    return out
 
 
 def build_operation_review(package: Package, op: Operation, ops: dict[str, Operation],
                            model: Optional[EdmxModel] = None, capabilities: Optional[dict] = None,
                            cache: Optional[dict] = None) -> dict:
-    """Structured technical review data for one operation (JSON-serialisable)."""
+    """Structured technical review data for one operation (JSON-serialisable, deterministic)."""
     cache = {} if cache is None else cache
+    capabilities = capabilities or {}
     obs = _observations(package, op, cache)
     et = model.entity_types.get(op.entity_type or "") if model else None
-    rtype = op.response.type
-    used_by = []
-    for cap in (capabilities or {}).values():
-        for step in cap.steps:
-            if step.operation == op.id:
-                used_by.append({"capability": cap.id, "capability_status": cap.status, "step": step.id,
-                                "role": step.role})
-    findings = [{"rule": f.rule, "severity": f.severity, "message": f.message} for f in validate_operation(op)]
+    findings = [_finding("validator", f.rule, "open" if f.rule == "open-question" else _VALIDATOR_LEVEL[f.severity],
+                         f.message, f.subject) for f in validate_operation(op)]
+    findings += _review_checks(op, model, obs)
+    approval_current = bool(op.approval and op.approval.revision == op.revision and
+                            op.approval.content_sha256 in (None, op.technical_hash()))
+    usage = _request_usage(op, ops, capabilities)
     return {
         "id": op.id,
+        "name": op.target,
         "kind": op.kind,
         "projection": op.projection,
         "method": op.method,
         "path": projection_path(op.projection) + op.path_template,
         "path_template": op.path_template,
         "entity_type": op.entity_type,
-        "description": op.description,
+        "recorded_facts": op.description,
         "status": op.status,
         "revision": op.revision,
         "content_sha256": op.technical_hash(),
         "approval": op.approval.model_dump(exclude_none=True) if op.approval else None,
-        "approval_current": bool(op.approval and op.approval.revision == op.revision and
-                                 op.approval.content_sha256 in (None, op.technical_hash())),
+        "approval_current": approval_current,
+        "state": derive_state(findings, op.status, approval_current),
+        "attention": {level: sum(f["level"] == level for f in findings) for level in LEVELS},
         "connector_operation_id": op.connector_operation_id,
         "metadata_source": _metadata_source(package, op, model),
         "path_parameters": [{
@@ -207,6 +322,7 @@ def build_operation_review(package: Package, op: Operation, ops: dict[str, Opera
             "name": b.name, "type": _type_text(b.type), "required": b.required, "in_metadata": b.in_metadata,
             "observed": b.observed, "structure": _structure(model, b.type.edm if b.type else None),
         } for b in op.body],
+        "request_usage": usage,
         "headers": [{"name": h.name, "required": h.required, "reason": h.reason} for h in op.headers],
         "observed_request_headers": obs["request_headers"],
         "observed_response_headers": obs["response_headers"],
@@ -221,189 +337,60 @@ def build_operation_review(package: Package, op: Operation, ops: dict[str, Opera
             "warning_headers_returned": sorted(k for k in obs["response_headers"] if k.startswith("x-ifs-")),
         },
         "response": {
-            "shape": op.response.shape, "type": rtype, "field_count": len(op.response.fields),
+            "shape": op.response.shape, "type": op.response.type, "field_count": len(op.response.fields),
             "keys": et.key if (et and op.response.shape in ("entity", "collection")) else [],
             "returned_identifiers": sorted(k for k in obs["response_headers"] if k in ("location", "odata-entityid")),
             "fields": [{"name": f, "observed": obs["response_values"].get(f, [])} for f in op.response.fields],
         },
-        "enums": sorted({f"{x['name']}: {x['type']}" for x in
-                         [*({"name": p.name, "type": _type_text(p.type)} for p in op.path_parameters if p.type and p.type.enum),
-                          *({"name": b.name, "type": _type_text(b.type)} for b in op.body if b.type and b.type.enum),
-                          *({"name": k, "type": _type_text(t)} for k, t in op.query.fields.items() if t.enum)]}),
+        "enums": sorted({f"{n}: {_type_text(t)}" for n, t in
+                         [*((p.name, p.type) for p in op.path_parameters if p.type and p.type.enum),
+                          *((b.name, b.type) for b in op.body if b.type and b.type.enum),
+                          *((k, t) for k, t in op.query.fields.items() if t.enum)]}),
         "evidence": [{"recording": e.recording, "call": f"#{e.call_index}" + (f".{e.part}" if e.part else ""),
                       "status": e.status} for e in op.evidence],
         "observed_statuses": obs["statuses"],
         "depends_on": op.depends_on,
         "feeds": sorted(o.id for o in ops.values() if op.id in o.depends_on),
-        "used_by": used_by,
-        "validation": findings,
-        "technical_flags": _technical_flags(op, model, obs),
-        "review_notes": op.review_notes,
+        "used_by": [{"capability": u["capability"], "capability_status": u["capability_status"], "step": u["step"],
+                     "role": u["role"]} for u in usage],
+        "open_questions": list(op.review_notes),
+        "findings": findings,
+        "finding_groups": group_findings(findings),
+        "meaning": MEANING,
+        "not_approving": NOT_APPROVING,
+    }
+
+
+def build_review_set(reviews: list[dict], capability: Optional[Any] = None) -> dict:
+    """The result of one `operations review` run: operations plus what they share."""
+    shared: dict[str, dict] = {}
+    for r in reviews:
+        for f in r["findings"]:
+            if f["level"] == "known":
+                s = shared.setdefault(f["code"], {"code": f["code"], "summary": GROUP_SUMMARY.get(f["code"], f["message"]),
+                                                  "operations": []})
+                if r["id"] not in s["operations"]:
+                    s["operations"].append(r["id"])
+    return {
+        "schema": "ifs-agent-ops/operation-review",
+        "schema_version": 1,
+        "capability": ({"id": capability.id, "title": capability.title, "status": capability.status,
+                        "revision": capability.revision} if capability is not None else None),
+        "summary": {
+            "operations": len(reviews),
+            "states": {s: sum(r["state"] == s for r in reviews) for s in STATES},
+            "validation_errors": sum(r["attention"]["blocking"] for r in reviews),
+            "open_questions": sum(r["attention"]["open"] for r in reviews),
+        },
+        "shared_known_behaviour": sorted(shared.values(), key=lambda s: s["code"]),
+        "operations": reviews,
         "meaning": MEANING,
     }
 
 
-# ── presentation ─────────────────────────────────────────────────────────────
-
-def _cell(text: Any) -> str:
-    return str(text if text not in (None, "") else "—").replace("|", "\\|").replace("\n", " ")
+def to_json(review_set: dict) -> str:
+    return json.dumps(review_set, indent=2, ensure_ascii=False)
 
 
-def _approve_line(r: dict) -> str:
-    return f"ifs-agent-ops operations approve {r['id']} --package <package>"
-
-
-def render_markdown(r: dict, package_name: str = "<package>") -> str:
-    out = [f"## {r['id']}", ""]
-    errors = sum(f["severity"] == "error" for f in r["validation"])
-    approval = r["approval"]
-    status = r["status"] + (f" by {approval.get('approved_by')} at {approval.get('approved_at')}" if approval else "")
-    out += [
-        "| | |", "|---|---|",
-        f"| Kind / method | {r['kind']} / `{r['method']}` |",
-        f"| Projection | {r['projection']} |",
-        f"| Path | `{r['path']}` |",
-        f"| Entity type | {_cell(r['entity_type'])} |",
-        f"| Status | {_cell(status)}{'' if not approval or r['approval_current'] else ' — **approval no longer current**'} |",
-        f"| Revision | {r['revision']} |",
-        f"| Content SHA-256 | `{r['content_sha256'][:16]}…` |",
-        f"| Metadata | {r['metadata_source'].get('element')}; snapshot `{r['metadata_source'].get('snapshot')}`"
-        f" fetched {_cell(r['metadata_source'].get('fetched_at'))} |",
-        f"| Validation | {errors} error(s), {sum(f['severity'] == 'warning' for f in r['validation'])} warning(s) |",
-        "",
-    ]
-    if r["description"]:
-        out += [r["description"], ""]
-    if r["review_notes"] or r["technical_flags"]:
-        out += ["### Questions for the reviewer", ""]
-        out += [f"- **Open:** {n}" for n in r["review_notes"]]
-        out += [f"- Check: {n}" for n in r["technical_flags"]]
-        out.append("")
-    if r["path_parameters"]:
-        out += ["### Path parameters", "", "| Name | Type | Placement | Observed |", "|---|---|---|---|"]
-        for p in r["path_parameters"]:
-            out.append(f"| {p['name']} | {_cell(p['type'])} | {_cell(', '.join(p['placements']))} | "
-                       f"{_cell(', '.join(p['observed']))} |")
-        out.append("")
-        for p in r["path_parameters"]:
-            if p["structure"]:
-                out += _structure_md(p["name"], p["structure"])
-    q = r["query"]
-    if any(q[k] for k in ("select", "expand", "filter_patterns", "orderby")) or q["top"] is not None:
-        out += ["### Query options (observed)", ""]
-        for label, key in (("$select", "select"), ("$expand", "expand"), ("$filter", "filter_patterns"),
-                           ("$orderby", "orderby")):
-            if q[key]:
-                out.append(f"- {label}: " + "; ".join(f"`{x}`" for x in q[key]))
-        if q["top"] is not None:
-            out.append(f"- $top: {q['top']}")
-        if q["fields"]:
-            out.append("- field types: " + "; ".join(f"{k} {v}" for k, v in q["fields"].items()))
-        out.append("")
-    if r["body"]:
-        out += ["### Request body", "", "| Field | Type | Required | Observed |", "|---|---|---|---|"]
-        for b in r["body"]:
-            req = {True: "yes", False: "no", None: "—"}[b["required"]]
-            out.append(f"| {b['name']}{'' if b['in_metadata'] else ' ⚠ not in metadata'} | {_cell(b['type'])} | "
-                       f"{req} | {_cell(', '.join(b['observed']) or 'not observed')} |")
-        out.append("")
-        for b in r["body"]:
-            if b["structure"]:
-                out += _structure_md(b["name"], b["structure"])
-    out += ["### Headers, ETag and warnings", ""]
-    for h in r["headers"]:
-        out.append(f"- {h['name']}: {'required' if h['required'] else 'optional'} — {h['reason']}")
-    e, w = r["etag"], r["warnings_header"]
-    out.append(f"- ETag: entity keys {', '.join(e['entity_keys']) or '—'}; If-Match "
-               f"{'required' if e['if_match_required'] else 'not required'}"
-               f"{' (sent)' if e['if_match_sent'] else ''}; ETag returned: {'yes' if e['etag_returned'] else 'no'}")
-    out.append(f"- Warnings: X-IFS-Accept-Warnings sent as {', '.join(w['accept_warnings_sent']) or 'not sent'}; "
-               f"warning headers returned: {', '.join(w['warning_headers_returned']) or 'none observed'}")
-    out.append("")
-    resp = r["response"]
-    out += ["### Response", "",
-            f"Shape **{resp['shape']}**, type {_cell(resp['type'])}, {resp['field_count']} field(s); "
-            f"keys {', '.join(resp['keys']) or '—'}; identifiers returned in "
-            f"{', '.join(resp['returned_identifiers']) or 'body only'}. Observed statuses: "
-            f"{', '.join(map(str, r['observed_statuses'])) or '—'}.", ""]
-    if resp["fields"]:
-        out += ["<details><summary>Response fields and observed shapes</summary>", "",
-                "| Field | Observed |", "|---|---|"]
-        out += [f"| {f['name']} | {_cell(', '.join(f['observed']))} |" for f in resp["fields"]]
-        out += ["", "</details>", ""]
-    if r["enums"]:
-        out += ["### Enum-typed values", ""] + [f"- {x}" for x in r["enums"]] + [""]
-    out += ["### Evidence and data flow", ""]
-    out += [f"- {ev['recording']} {ev['call']} → {ev['status']}" for ev in r["evidence"]]
-    out.append(f"- Depends on (observed): {', '.join(r['depends_on']) or '—'}")
-    out.append(f"- Feeds (observed): {', '.join(r['feeds']) or '—'}")
-    out.append("- Used by capabilities: " + (", ".join(f"{u['capability']} step `{u['step']}` ({u['role']})"
-                                                       for u in r["used_by"]) or "—"))
-    out.append("")
-    if r["validation"]:
-        out += ["### Validation findings", ""]
-        out += [f"- {f['severity']}: {f['rule']}: {f['message']}" for f in r["validation"]]
-        out.append("")
-    out += ["### Approve", "", f"> {r['meaning']}", "",
-            f"In an interactive terminal: `{_approve_line(r).replace('<package>', package_name)}`", ""]
-    return "\n".join(out)
-
-
-def _structure_md(name: str, s: dict) -> list[str]:
-    rows = [f"<details><summary>{name}: composite {s['type']} ({len(s['members'])} members)</summary>", "",
-            "| Member | Type | Nullable |", "|---|---|---|"]
-    rows += [f"| {m['name']} | {m['type']} | {'yes' if m['nullable'] else 'no'} |" for m in s["members"]]
-    return rows + ["", "</details>", ""]
-
-
-def render_summary(r: dict) -> str:
-    """Short terminal view shown by `operations approve` before the human gate."""
-    errors = [f for f in r["validation"] if f["severity"] == "error"]
-    lines = [f"{r['id']}  (revision {r['revision']}, {r['status']})",
-             f"  {r['method']} {r['path']}",
-             f"  content sha256 {r['content_sha256']}",
-             f"  metadata: {r['metadata_source'].get('element')}",
-             f"  path parameters: {len(r['path_parameters'])}, body fields: {len(r['body'])}, "
-             f"response: {r['response']['shape']} {r['response']['type'] or ''} ({r['response']['field_count']} fields)",
-             f"  evidence: {len(r['evidence'])} recorded call(s); used by: "
-             + (", ".join(f"{u['capability']}:{u['step']}" for u in r["used_by"]) or "no capability"),
-             f"  validation: {len(errors)} error(s)"]
-    if r["review_notes"]:
-        lines.append(f"  OPEN QUESTIONS ({len(r['review_notes'])}):")
-        lines += [f"    - {n}" for n in r["review_notes"]]
-    if r["technical_flags"]:
-        lines.append("  check:")
-        lines += [f"    - {n}" for n in r["technical_flags"]]
-    return "\n".join(lines)
-
-
-def render_document(reviews: list[dict], title: str, package_name: str) -> str:
-    out = [f"# Technical operation review: {title}", "", f"> {MEANING}", "",
-           "| Operation | Kind | Status | Rev | Errors | Open questions | Checks |", "|---|---|---|---|---|---|---|"]
-    for r in reviews:
-        out.append(f"| [{r['id']}](#{_anchor(r['id'])}) | {r['kind']} | {r['status']} | {r['revision']} | "
-                   f"{sum(f['severity'] == 'error' for f in r['validation'])} | {len(r['review_notes'])} | "
-                   f"{len(r['technical_flags'])} |")
-    out.append("")
-    for r in reviews:
-        out += [render_markdown(r, package_name), "---", ""]
-    return "\n".join(out)
-
-
-def _anchor(text: str) -> str:
-    return re.sub(r"[^a-z0-9 -]", "", text.lower()).replace(" ", "-")
-
-
-def review_path(package: Package, name: str) -> Path:
-    return package.root / LOCAL_STATE_DIR / "review" / "operations" / f"{name}.md"
-
-
-def write_document(package: Package, reviews: list[dict], name: str, title: str) -> Path:
-    path = review_path(package, name)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_document(reviews, title, package.name), encoding="utf-8", newline="\n")
-    return path
-
-
-def to_json(reviews: list[dict]) -> str:
-    return json.dumps(reviews, indent=2, sort_keys=False)
+def review_dir(package: Package) -> Path:
+    return package.root / LOCAL_STATE_DIR / "review" / "operations"

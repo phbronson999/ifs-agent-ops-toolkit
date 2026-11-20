@@ -56,24 +56,37 @@ def test_review_notes_survive_redraft_and_show_as_open_questions(pkg):  # noqa: 
     assert ("open-question", "info") in {(f.rule, f.severity) for f in validate_operation(op)}
 
 
-def test_operations_review_report_and_json(pkg, monkeypatch, capsys):  # noqa: F811
+def test_operations_review_artifacts_and_json(pkg, monkeypatch, capsys):  # noqa: F811
     from ifs_agent_ops.cli.main import main
 
     monkeypatch.setenv("IFS_AGENT_OPS_PACKAGES", str(pkg.root))
     service.draft(pkg)
-    assert main(["operations", "review", "OrderHandling.create.OrderSet", "create.OrderSet.LinesArray", "--package", "ifs-orders"]) == 0
+    ids = ["OrderHandling.create.OrderSet", "OrderHandling.create.OrderSet.LinesArray"]
+    assert main(["operations", "review", *ids, "--package", "ifs-orders"]) == 0
     out = capsys.readouterr().out
-    assert "POST /main/ifsapplications/projection/v1/OrderHandling.svc/OrderSet" in out
-    report = (pkg.root / ".ifs-agent-ops" / "review" / "operations" / "selection.md").read_text(encoding="utf-8")
-    for expected in (MEANING, "### Request body", "### Headers, ETag and warnings", "### Response",
-                     "### Evidence and data flow", "Content SHA-256", "WantedDate", "string:9999-99-99T99:99:99Z"):
-        assert expected in report, expected
-    assert "ORD-1" not in report and "'C1'" not in report  # shapes, never recorded values
+    assert "Technical operation review" in out and "[" not in out  # redirected: no ANSI
+    base = pkg.root / ".ifs-agent-ops" / "review" / "operations"
+    doc = (base / "selection.md").read_text(encoding="utf-8")
+    for expected in (MEANING, "## Review summary", "## Operations requiring attention", "## Operation summaries",
+                     "appendix/OrderHandling.create.OrderSet.md"):
+        assert expected in doc, expected
+    appendix = (base / "appendix" / "OrderHandling.create.OrderSet.md").read_text(encoding="utf-8")
+    for expected in ("## Request body", "## Headers, ETag and warnings", "## Response", "## Evidence and data flow",
+                     "Content SHA-256", "WantedDate", "string:9999-99-99T99:99:99Z", "## Findings (every finding"):
+        assert expected in appendix, expected
+    for text in (doc, appendix):
+        assert "ORD-1" not in text and "'C1'" not in text  # shapes, never recorded values
 
-    assert main(["operations", "review", "OrderHandling.create.OrderSet", "--package", "ifs-orders", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data[0]["id"] == "OrderHandling.create.OrderSet" and data[0]["meaning"] == MEANING
-    assert {"path", "content_sha256", "body", "response", "etag", "evidence", "used_by"} <= set(data[0])
+    assert main(["operations", "review", ids[0], "--package", "ifs-orders", "--output", "json"]) == 0
+    raw = capsys.readouterr().out
+    assert "" not in raw
+    data = json.loads(raw)
+    op = data["operations"][0]
+    assert data["schema"] == "ifs-agent-ops/operation-review" and op["id"] == ids[0] and op["meaning"] == MEANING
+    assert {"state", "attention", "findings", "finding_groups", "open_questions", "path", "content_sha256", "body",
+            "response", "etag", "evidence", "used_by", "request_usage"} <= set(op)
+    assert main(["operations", "review", ids[0], "--package", "ifs-orders", "--output", "json"]) == 0
+    assert capsys.readouterr().out == raw  # deterministic
 
 
 def test_capability_review_shows_deferred_scope_and_output_meaning(pkg):  # noqa: F811
