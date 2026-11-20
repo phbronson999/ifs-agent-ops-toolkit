@@ -12,23 +12,35 @@ The goal is to define an IFS operation once and use that same definition through
 
 ## Architecture
 
-The toolkit separates development tooling from the packages it produces.
+The toolkit separates development tooling from the packages it produces, and generation from deployment.
+
+```text
+1. Development toolchain   Git, Python, Node, PAC, Agents Toolkit, VS Code, Claude Code  (doctor / bootstrap)
+2. Toolkit                 capture, sanitize, analyze, enrich, model, validate, generate, deployment adapters
+3. Capability package      evidence, metadata, operations, workflows, generated artifacts, deployment intent
+4. Deployment / ALM        targets, authentication, Power Platform solutions, agent provisioning, validation, promotion
+5. Experiences             Copilot / Teams / SPFx / SharePoint consumers
+```
+
+A capability package describes *what should exist*, using logical names only. Deployment adapters
+reconcile that intent with a target environment through Microsoft's current tooling (`pac`,
+Microsoft 365 Agents Toolkit). Secrets, connection IDs and environment URLs never live in a package.
+See [docs/roadmap.md](docs/roadmap.md) for the lifecycle model, Microsoft tooling matrix and phases.
 
 ### Toolkit
 
 `ifs-agent-ops-toolkit` contains the reusable tooling used to:
 
 - Capture IFS Cloud workflows and their network activity
-- Organize captured traffic by workflow and task
-- Analyze relevant IFS API operations
+- Sanitize recordings and import them into packages as repository-safe evidence
+- Analyze relevant IFS API operations, including call order and data flow
 - Enrich observed operations using IFS OpenAPI and metadata
-- Build and maintain canonical operation definitions
-- Generate agent skills and instructions
-- Generate Power Platform custom connector definitions
-- Generate Power Automate flow dispatcher
-- Validate and test generated operations
+- Build and maintain canonical operation and workflow definitions
+- Generate agent skills, Power Platform connector and dispatcher source artifacts, and agent artifacts
+- Deploy, validate and promote those artifacts per environment (deployment adapters)
+- Check and prepare a developer machine (`doctor`, `bootstrap`)
 
-### Operation Packages
+### Capability Packages
 
 IFS business functionality is maintained outside the toolkit in independently versioned packages.
 
@@ -46,14 +58,14 @@ A package can contain:
 
 ```text
 ifs-customer-orders/
-├── recordings/
-├── operations/
-├── agent/
-│   ├── skills/
-│   └── instructions/
-├── power-platform/
-│   └── connector/
-└── dispatcher/
+├── package.yaml
+├── recordings/          sanitized evidence (record import)
+├── metadata/            pinned $metadata / $openapi snapshots
+├── operations/          canonical operations (draft | approved)
+├── workflows/
+├── agent/               skills, instructions, agent/plugin source
+├── power-platform/      connector and flow source artifacts
+└── deploy.yaml          deployment intent: logical names, no secrets or environment IDs (planned)
 ```
 
 ## Operation Model
@@ -99,8 +111,10 @@ The project is expected to include:
 - **Manual workflow recorder** - captures task-oriented IFS network activity
 - **Analyzer** - converts captured activity into structured operation evidence
 - **Operation model** - maintains canonical definitions of approved operations
-- **Generators** - produce agent, connector, and flow dispatcher artifacts
-- **Workspace management** - manages independently maintained IFS operation packages
+- **Generators** - produce agent, connector, and flow dispatcher source artifacts
+- **Workspace management** - manages independently maintained IFS capability packages
+- **Deployment adapters** - reconcile package intent with Power Platform and Microsoft 365 per target environment
+- **Doctor / bootstrap** - capability-based readiness checks and explicit local setup
 
 ## Design Principles
 
@@ -111,6 +125,9 @@ The project is expected to include:
 - Preserve workflow context and operation ordering when analyzing network activity.
 - Keep MCP as a first-class interface so the toolkit can be used directly from AI-assisted development environments.
 - Require human review before generated operation definitions become authoritative.
+- Keep generation and deployment separate; keep Microsoft deployment tooling out of the canonical model.
+- Keep secrets and environment-specific identifiers out of packages; give generated resources stable logical identities.
+- Inspect (`doctor`), set up locally (`bootstrap`) and change external systems (`deploy`) only as separate, explicit actions.
 
 ## Status
 
