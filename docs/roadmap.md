@@ -4,7 +4,7 @@ This is the source of truth for the lifecycle architecture and the phased migrat
 `ifs-mcp-server-local-python`. `docs/migration-from-ifs-mcp.md` records what each completed
 phase changed; this document says where the project is going and in what order.
 
-Status at time of writing: Phases 0–5 merged; Phase 6 (operation model) in review. The decisions recorded on 2026-11-20 are folded
+Status at time of writing: Phases 0–6 merged; Phase 7 (doctor) next, then the Phase 7b capability-curation gate. The decisions recorded on 2026-11-20 are folded
 in: the customer-order pilot, permanent package `name`, the reserved `.ifs-agent-ops/` folder,
 and the proven agent path as the Phase 13 baseline.
 
@@ -228,25 +228,33 @@ Results: PASS, WARN, FAIL, NOT REQUIRED (for the capability asked about).
 | # | Phase | Scope | Exit check |
 |---|---|---|---|
 | 0–4 | done | baseline, parity tests, client decoupling, profiles, recordings/analysis | merged |
-| 5 | **Workspace & packages** (in review) | packages, discovery, redacting import boundary | parity + import verification |
-| 6 | **Operation model v0** | pydantic model and JSON Schema; drafts from recordings plus metadata; IFS rule validators; approval status. **Pilot: customer-order create** (decided; the primary end-to-end proving scenario, and its real recordings are already imported); shop floor clockings becomes the second package. Adds stable logical IDs (operation id, `operationId` reservation) | drafts cover the recorded create-order flow; ids stable across re-drafts |
-| 7 | **Toolchain `doctor` v1** (small, independent; can run alongside 6) | capability-based checks for `toolkit`, `ifs` and `packages`; PP/agent checks report NOT REQUIRED until their phases | doctor output on a fresh clone is actionable |
-| 8 | **Skill generator** | as planned; writes into the package; replaces legacy `save_skill` defaults | generated skill ≡ hand-written; datetime contradiction gone |
-| 9 | **Connector generator** | as planned (§5a of the plan: select → prune → compatibility transforms → annotate → validate); emits `power-platform/connector/*` and the **stable operationId map** | all checks pass; size report |
+| 5 | **Workspace & packages** (merged) | packages, discovery, redacting import boundary | parity + import verification |
+| 6 | **Operation model v0** (merged) | pydantic model and JSON Schema; drafts from recordings plus metadata; IFS rule validators; approval status. **Pilot: customer-order create** (decided; the primary end-to-end proving scenario, and its real recordings are already imported); shop floor clockings becomes the second package. Adds stable logical IDs (operation id, `operationId` reservation) | drafts cover the recorded create-order flow; ids stable across re-drafts |
+| 7 | **Toolchain `doctor` v1** (small, independent) | capability-based checks for `toolkit`, `ifs` and `packages`; PP/agent checks report NOT REQUIRED until their phases | doctor output on a fresh clone is actionable |
+| 7b | **Capability curation: customer order** (review gate before any generator) | a new `Capability` model (separate from the observed `Workflow`), schema and validator ([operation-model.md](operation-model.md) §3); `create-customer-order` capability curated from the observed workflows: agent-facing inputs (document/user/agent), lookups and validation, defaults/derived/fixed values, user questions, `prepare` and `submit` actions, confirmation, meaningful outputs/warnings/errors; the canonical operations it uses reviewed and approved; the capability itself **approved by a human** | capability validates (every required canonical parameter of each write is bound; every referenced operation is approved); human approval recorded |
+| 8 | **Skill generator** | from **approved capabilities** (curated workflow, agent-visible inputs, questions, confirmation), with canonical operations for technical detail; writes into the package; replaces legacy `save_skill` defaults | generated skill describes the curated workflow, not the full IFS field surface; datetime contradiction gone |
+| 9 | **Connector generator** | as planned (§5a of the plan: select → prune → compatibility transforms → annotate → validate), selecting **only operations referenced by approved capabilities**; emits `power-platform/connector/*` and the **stable operationId map** | all checks pass; size report |
 | 10 | **Deployment foundations + Power Platform adapter v1** | `deploy.yaml` schema; targets in toolkit home; adapter interface (`plan`/`apply`/`status`); PP adapter for **solution + connector + environment variables + connection-reference placeholders** via `pac`; deployment settings file generation; manual-step checklist; `doctor --for power-platform` | deploy is idempotent to a DEV target (second run is a no-op); status shows drift |
 | 11 | **Validation runner** | target-based `validate`: static, `pac solution check`, runtime calls through the deployed connector/flow (read-only by default) | green on DEV |
-| 12 | **Dispatcher generator + flow deployment** | dispatcher definition from workflows; deployed as a solution component; turned on after import | flow runs on DEV through the gateway |
+| 12 | **Dispatcher generator + flow deployment** | dispatcher definition from **capability actions** (their inputs, steps, bindings, outputs), not a mirror of connector parameters; deployed as a solution component; turned on after import | flow runs on DEV through the gateway |
 | 13 | **Agent artifacts + agent adapter** | Baseline is the **proven path** (§6.1): a declarative agent with an API-plugin/OpenAPI action whose endpoint is the authenticated Power Automate HTTP trigger of the Phase 12 flow, using OAuthPluginVault with Entra delegated auth. Generated into `agent/<name>/` (Agents Toolkit layout); `atk` adapter with `--env <target>`; the plugin's server URL resolved per target from the deployed flow's trigger URL; `doctor --for agents` | agent provisioned to DEV reaches IFS through the generated capability, with the same request/response as the proven hand-built agent |
 | 14 | **Promotion and CI readiness** | managed solution versions, `promote` via Pipelines/`pac pipeline deploy`, agent version promotion, service-principal auth paths, release records | DEV → TEST promotion reproducible from CLI |
 | — | Recorder v2 (optional) | browser-driven capture | — |
 
 **Proving scenario: customer-order PDF → conversational validation → confirmation → IFS
-submission.** It runs on Phase 6's customer-order pilot, Phase 8 (skill), Phase 9 (connector),
+submission.** It runs on Phase 6's customer-order pilot, the Phase 7b curated
+`create-customer-order` capability, Phase 8 (skill), Phase 9 (connector),
 Phases 10–11 (deploy and validate), Phase 12 (dispatcher) and Phase 13 (agent). It is the first
 end-to-end acceptance test, at the end of Phase 13. The SPFx/React experience consumes the
 deployed agent/capability and stays a separate project that this roadmap doesn't build. Its
-needs that feed back into the model are: validation-only operations, confirmation before write
-operations, and warning surfacing (`X-IFS-Accept-Warnings`).
+needs that feed back into the model are: a `prepare` action (lookups and validation only, which
+returns a proposal and warnings), `submit` with explicit confirmation, user questions for missing
+required inputs, and warning surfacing (`X-IFS-Accept-Warnings`).
+
+**Observed vs. curated.** Observed workflows (what the IFS web client did) and canonical operations
+(what IFS accepts) are evidence and technical truth. The curated capability (what the agent should
+do and may supply) is what generators consume. A writable IFS field doesn't become agent-visible
+just because metadata declares it. See [operation-model.md](operation-model.md).
 
 ### 6.1 Proven runtime path (baseline for Phases 12–13)
 
