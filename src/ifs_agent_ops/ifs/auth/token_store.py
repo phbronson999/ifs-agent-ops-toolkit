@@ -22,6 +22,7 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
+# Legacy server location; profiles now use <toolkit home>/profiles/<name>/session.json.
 DEFAULT_SESSION_FILE = Path.home() / ".ifs-mcp" / "session.json"
 
 
