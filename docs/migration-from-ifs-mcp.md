@@ -43,3 +43,41 @@ History for that code remains in those repositories.
 Tool names, inputs and outputs are unchanged; 42 tool-level snapshots captured from the
 legacy server (`tests/snapshots/tools/`) verify this, including auth failure, refresh,
 pagination and session-file cases.
+
+## Phase 3: profiles and toolkit home
+
+One MCP server process serves one IFS profile. Run one server per environment (e.g. TEST on
+port 8000, PROD on 8001) and register each in your MCP client config.
+
+`~/.ifs-agent-ops/profiles.toml` (or `$IFS_AGENT_OPS_HOME/profiles.toml`):
+
+```toml
+default_profile = "test"
+
+[profiles.test]
+base_url = "https://ifs-test.example.com"
+realm = "testrealm"
+client_id = "ifs-agent-ops"
+callback_port = 3000        # must be registered as http://localhost:3000/oauth/callback in IFS IAM
+mcp_server_port = 8000
+
+[profiles.prod]
+base_url = "https://ifs-prod.example.com"
+realm = "prodrealm"
+client_id = "ifs-agent-ops"
+callback_port = 3001
+mcp_server_port = 8001
+# tls_verify = false / ca_bundle = "C:/certs/corp.pem"
+```
+
+- Selection: `--profile` > `IFS_PROFILE` > `default_profile`; with none, the `.env` variables
+  form an implicit `default` profile (unchanged behaviour for existing setups).
+- Named profiles never read the legacy `API_BASE_URL`/`OAUTH_*` variables, so a `.env` pointing
+  at TEST cannot leak into a PROD profile.
+- Sessions: `~/.ifs-agent-ops/profiles/<name>/session.json`. The `default` profile copies
+  `~/.ifs-mcp/session.json` once on first use (copy, not move: the legacy server keeps working;
+  the two then diverge).
+- Profiles that run at the same time need distinct `callback_port`s; `ifs-agent-ops profiles`
+  flags shared ports and shows each profile's sign-in state.
+- Unchanged for now: export/scratch defaults stay under `~/.ifs-mcp/` (they are named in tool
+  descriptions covered by the parity snapshot).

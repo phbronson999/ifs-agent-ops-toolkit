@@ -2,11 +2,9 @@
 """IFS Agent Ops Toolkit MCP server — Streaming HTTP transport entry point."""
 from pathlib import Path
 
-# Load .env relative to the project root (not cwd) — mirrors index.ts behavior.
-# Must run before any config imports so env vars are populated.
-from dotenv import load_dotenv
-# src/ifs_agent_ops/mcp_server/server.py -> repo root is parents[3].
-load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
+# Load the repo-root .env before any config is read (shared with the CLI).
+from ifs_agent_ops.env import load_env
+load_env()
 
 from typing import Literal, Optional
 
@@ -15,6 +13,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ifs_agent_ops.config import get_mcp_server_port
 from ifs_agent_ops.mcp_server.runtime import Runtime
+from ifs_agent_ops.profiles import ProfileError
 from ifs_agent_ops.mcp_server.resources.index import get_resources
 from ifs_agent_ops.mcp_server.prompts.build_ifs_skill_guide import (
     projection_definition, projection_handler,
@@ -24,7 +23,16 @@ from ifs_agent_ops.mcp_server.prompts.build_ifs_skill_guide import (
 
 # ── Boot ─────────────────────────────────────────────────────────────────────
 
-runtime = Runtime.from_env()  # loads persisted sessions, as initialize_token_store() did
+# One server process serves one IFS profile. main() builds the runtime for --profile /
+# IFS_PROFILE before serving; rt() builds it lazily when the module is used without main().
+_runtime: Optional[Runtime] = None
+
+
+def rt() -> Runtime:
+    global _runtime
+    if _runtime is None:
+        _runtime = Runtime.for_profile()
+    return _runtime
 
 # ── FastMCP server ────────────────────────────────────────────────────────────
 
@@ -77,14 +85,14 @@ async def _get_prompt(name: str, arguments: dict[str, str] | None) -> mcp_types.
 async def start_oauth(force: bool = False) -> str:
     """Start OAuth 2.0 authentication flow — opens a login window in the browser. Call this automatically whenever an API tool returns an authentication_required error or session expiry. Do not ask the user to trigger this manually."""
     from ifs_agent_ops.mcp_server.tools.auth.start_oauth import handler
-    return await handler(force, runtime.auth, runtime.store)
+    return await handler(force, rt().auth, rt().store)
 
 
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
 async def get_session_info() -> str:
     """Get information about the current saved session, including session ID and expiration status."""
     from ifs_agent_ops.mcp_server.tools.auth.get_session_info import handler
-    return await handler(runtime.store)
+    return await handler(rt().store)
 
 
 # ── API tools ─────────────────────────────────────────────────────────────────
@@ -99,7 +107,7 @@ async def call_protected_api(
 ) -> str:
     """Call a protected IFS Cloud API endpoint using an authenticated session. IFS Cloud projection names, endpoint paths, key fields, and OData filter syntax are non-standard and vary per customer configuration. Guessing them will produce 404 errors or silently return wrong data. You MUST call get_api_guide first to get the correct endpoint and query pattern for the workflow — do not skip this step even if you think you know the endpoint. Do NOT call $metadata, probe unknown paths, or construct endpoints from scratch. If get_api_guide returns no matching guide, stop and tell the user: 'I don't have a skill for that workflow yet. Please perform this action in IFS Cloud in your browser, then export a HAR file from DevTools (Network tab → right-click → Save all as HAR with content) and use the build_ifs_skill_guide prompt to create a skill for it.' If the response contains error 'authentication_required', immediately call start_oauth — do not relay the error to the user or ask them to authenticate manually. If no session_id is provided, uses the most recent saved session. Use headers to pass If-Match (ETag) for PATCH/DELETE/bound actions."""
     from ifs_agent_ops.mcp_server.tools.api.call_protected_api import handler
-    return await handler(endpoint, method, session_id, body, headers, runtime.client)
+    return await handler(endpoint, method, session_id, body, headers, rt().client)
 
 
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
@@ -119,7 +127,7 @@ async def export_api_data(
 ) -> str:
     """Export large API result sets to a CSV file. Fetches data in batches of 100 records using $top/$skip pagination and saves to the path set in IFS_MCP_EXPORT_DIR env var, otherwise ~/.ifs-mcp/exports/. Use this when call_protected_api returns a 'Response too large' warning."""
     from ifs_agent_ops.mcp_server.tools.api.export_api_data import handler
-    return await handler(endpoint, method, filename, session_id, body, runtime.client)
+    return await handler(endpoint, method, filename, session_id, body, rt().client)
 
 
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True))
@@ -165,13 +173,32 @@ async def get_projection_enum_map(
 ) -> str:
     """Parse a projection's $metadata XML and return resolved enum definitions for its entity sets. Use this when authoring $filter expressions for enum fields — IFS Cloud requires the fully qualified enum type name (e.g. IfsApp.CustomerOrderHandling.CustomerOrderState'Released'). Pass projection_name (e.g. 'CustomerOrderHandling'). Pass entity_set to filter to a single entity set and keep the response small (recommended). Reference_ sets are excluded by default; set include_reference_sets=true to include them."""
     from ifs_agent_ops.mcp_server.tools.api.get_projection_enum_map import handler
-    return await handler(projection_name, entity_set, include_reference_sets, runtime.client)
+    return await handler(projection_name, entity_set, include_reference_sets, rt().client)
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 
-def main() -> None:
-    port = get_mcp_server_port()
+def main(argv: Optional[list[str]] = None) -> None:
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(prog="ifs-agent-ops-mcp", description="IFS Agent Ops MCP server")
+    parser.add_argument("--profile", help="IFS profile from profiles.toml (default: IFS_PROFILE, "
+                                          "default_profile, or the .env-based 'default' profile)")
+    args = parser.parse_args(argv)
+
+    global _runtime
+    try:
+        _runtime = Runtime.for_profile(args.profile)
+    except ProfileError as exc:
+        parser.exit(2, f"ifs-agent-ops-mcp: {exc}\n")
+
+    mcp.settings.port = _runtime.mcp_server_port or get_mcp_server_port()
+    print(
+        f"ifs-agent-ops-mcp: profile '{_runtime.profile}' -> {_runtime.settings.base_url or '(no base URL)'} "
+        f"| session {_runtime.store.path} | http://{mcp.settings.host}:{mcp.settings.port}/mcp",
+        file=sys.stderr,
+    )
     mcp.run(transport="streamable-http")
 
 
