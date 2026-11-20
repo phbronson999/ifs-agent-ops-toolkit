@@ -1,10 +1,16 @@
 """Canonical operation and workflow model (v0).
 
-An ``Operation`` is one IFS projection call as the business uses it; a ``Workflow`` is an
-ordered composition of operations with the data flow between them. Both are stored as YAML in a
-package (``operations/<id>.yaml``, ``workflows/<id>.yaml``) and are the single source for later
-generators. Platform-specific concerns (Power Platform renames, connector quirks) do not belong
-here; the model keeps the original IFS path template and IFS types.
+An ``Operation`` is the complete IFS API contract for one projection call: everything IFS accepts,
+typed from metadata (never trimmed for an agent). A ``Workflow`` here is an *observed* workflow:
+the call sequence of one recording with its data flow, which is evidence and not a contract.
+What an agent may supply and which steps it runs belongs to a curated capability that references
+operations (see docs/operation-model.md; Phase 7b). Stored as YAML in a package
+(``operations/<id>.yaml``, ``workflows/<id>.yaml``). Platform-specific concerns (Power Platform
+renames, connector quirks) do not belong here; the model keeps the original IFS path template and
+IFS types.
+
+``status: approved`` on an operation means its technical description is verified. It does not
+mean the operation is exposed to agents; exposure is decided by approved capabilities.
 
 Identity rules: ``id`` is derived from projection + kind + path segments and never changes;
 ``connector_operation_id`` is assigned once when the operation is first drafted and is never
@@ -110,7 +116,9 @@ class Operation(_Model):
     body: list[Parameter] = Field(default_factory=list)
     headers: list[Header] = Field(default_factory=list)
     response: Response = Field(default_factory=lambda: Response(shape="unknown"))
-    depends_on: list[str] = Field(default_factory=list, description="Operations whose responses supply inputs")
+    depends_on: list[str] = Field(default_factory=list, description="Operations whose responses supplied inputs in "
+                                                                    "the recordings (observed, including UI-driven "
+                                                                    "calls; evidence for curation)")
     evidence: list[Evidence] = Field(default_factory=list)
     approval: Optional[Approval] = None
 
@@ -133,6 +141,10 @@ class Step(_Model):
 
 
 class Workflow(_Model):
+    """Observed workflow: what the IFS web client did in one recording (UI lookups included).
+
+    Evidence for curating capabilities; generators never consume it directly.
+    """
     schema_version: int = SCHEMA_VERSION
     id: str
     status: Status = "draft"

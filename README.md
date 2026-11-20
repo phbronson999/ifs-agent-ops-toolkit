@@ -61,8 +61,9 @@ ifs-customer-orders/
 ├── package.yaml
 ├── recordings/          sanitized evidence (record import)
 ├── metadata/            pinned $metadata / $openapi snapshots
-├── operations/          canonical operations (draft | approved)
-├── workflows/
+├── operations/          canonical operations: the complete IFS API contracts (draft | approved)
+├── workflows/           observed workflows: what the IFS web client did (evidence)
+├── capabilities/        curated capabilities: agent-facing inputs, actions and bindings (planned, Phase 7b)
 ├── agent/               skills, instructions, agent/plugin source
 ├── power-platform/      connector and flow source artifacts
 └── deploy.yaml          deployment intent: logical names, no secrets or environment IDs (planned)
@@ -70,9 +71,13 @@ ifs-customer-orders/
 
 ## Operation Model
 
-The canonical operation definition is the source of truth for an agent-accessible IFS operation.
+The canonical operation definition is the source of truth for an IFS API operation: what IFS accepts
+and how the call works. What an agent may supply is a separate, curated **capability** that
+references canonical operations and declares where every value comes from (the agent, a document,
+a user question, an earlier step, a default, a derivation or a fixed value). Observed workflows from
+recordings are evidence for both, never a contract. See [docs/operation-model.md](docs/operation-model.md).
 
-It combines:
+A canonical operation combines:
 
 - Observed behavior from an IFS workflow
 - IFS projection and endpoint information
@@ -93,7 +98,11 @@ IFS API analysis
      ↓
 Canonical operation definition
      ↓
-Human review
+Human review (operation: technically correct)
+     ↓
+Curated capability (agent-facing inputs, actions, bindings)
+     ↓
+Human review (capability: business contract approved)
      ↓
 Agent skill
 Custom connector
