@@ -186,6 +186,16 @@ async def get_operation(package: str, operation_id: str) -> str:
     return await handler(package, operation_id)
 
 
+@mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def doctor(capabilities: Optional[list[str]] = None, offline: bool = False) -> str:
+    """Check this machine's readiness for toolkit work, per capability: toolkit, ifs, packages (default), power-platform, agents, spfx. Read-only: reports PASS / WARN / FAIL / NOT REQUIRED with a concrete fix for each problem; never installs, signs in or changes anything."""
+    import asyncio
+
+    from ifs_agent_ops import doctor as doc
+    results = await asyncio.to_thread(doc.run, capabilities or None, online=not offline)
+    return doc.render(results)
+
+
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
 async def read_openapi_file(path: str) -> str:
     """Read and summarise a downloaded OpenAPI/Swagger JSON file for skill authoring. Returns a structured summary of the entity sets, methods, and properties found in the spec. Provide the absolute path to the downloaded JSON file."""

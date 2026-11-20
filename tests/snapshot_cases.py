@@ -487,7 +487,7 @@ LEGACY_TOOL_NAMES = {
     "get_projection_enum_map",
 }
 # Tools added by the toolkit (not in the legacy server). Each addition is deliberate.
-ADDED_TOOL_NAMES = {"analyze_recording", "draft_operations", "list_operations", "get_operation"}
+ADDED_TOOL_NAMES = {"analyze_recording", "draft_operations", "list_operations", "get_operation", "doctor"}
 
 
 def mcp_surface(flavor: str) -> dict[str, str]:

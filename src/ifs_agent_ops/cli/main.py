@@ -228,6 +228,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--version", action="store_true", help="print the toolkit version")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("profiles", help="list IFS environment profiles and their sign-in state")
+    doc = sub.add_parser("doctor", help="check machine readiness per capability (read-only)")
+    doc.add_argument("--for", dest="capabilities", action="append", default=[],
+                     choices=["toolkit", "ifs", "packages", "power-platform", "agents", "spfx"],
+                     help="capability to check (repeatable; default: toolkit, ifs, packages)")
+    doc.add_argument("--all", action="store_true", help="check every capability")
+    doc.add_argument("--offline", action="store_true", help="skip network checks")
+    doc.add_argument("--json", action="store_true", help="machine-readable output")
     har = sub.add_parser("har", help="work with browser HAR recordings").add_subparsers(dest="har_command", required=True)
     s_san = har.add_parser("sanitize", help="remove credentials, trace infrastructure details and _initiator")
     s_san.add_argument("input")
@@ -303,6 +310,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         except PackageNotFoundError:
             print("unknown")
         return 0
+    if args.command == "doctor":
+        import json as _json
+
+        from ifs_agent_ops import doctor
+
+        wanted = list(doctor.CAPABILITIES) if args.all else (args.capabilities or None)
+        results = doctor.run(wanted, online=not args.offline)
+        print(_json.dumps(doctor.as_dicts(results), indent=2) if args.json else doctor.render(results))
+        return doctor.exit_code(results)
     if args.command == "profiles":
         return cmd_profiles(args)
     if args.command == "har":
