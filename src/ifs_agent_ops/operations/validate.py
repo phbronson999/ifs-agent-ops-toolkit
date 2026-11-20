@@ -103,3 +103,11 @@ def validate_all(ops: dict[str, Operation]) -> list[Finding]:
             if dep not in ops:
                 findings.append(Finding(op.id, "dangling-dependency", "error", f"depends_on {dep} does not exist"))
     return findings
+
+
+def approval_blockers(op: Operation) -> tuple[list[Finding], list[str]]:
+    """What prevents (re-)approval: validation errors of the definition as a draft, and open technical
+    model questions. Approval bookkeeping itself (e.g. changed-since-approval) is not a blocker for
+    re-approving the changed definition."""
+    draft = op.model_copy(update={"status": "draft", "approval": None})
+    return [f for f in validate_operation(draft) if f.severity == "error"], list(op.review_notes)

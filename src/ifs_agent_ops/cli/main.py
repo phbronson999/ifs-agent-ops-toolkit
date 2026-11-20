@@ -244,15 +244,25 @@ def cmd_operations(args: argparse.Namespace) -> int:
             console.print(f"review document: {doc}", markup=False, highlight=False)
             console.print(f"technical appendix: {doc.parent / 'appendix'} ({len(appendices)} file(s))",
                           markup=False, highlight=False)
+        elif args.operations_command == "approve" and args.capability:
+            if args.operation:
+                raise KeyError("give one operation id or --capability, not both")
+            return _approve_operation_set(package, args.capability)
         elif args.operations_command == "approve":
             from ifs_agent_ops.cli.review_view import make_console, render_approval
             from ifs_agent_ops.operations.review_markdown import appendix_name, write_review_artifacts
+            from ifs_agent_ops.operations.store import load_operations
+            from ifs_agent_ops.operations.validate import approval_blockers
 
-            text, errors = service.validation_report(package, args.operation)
+            if not args.operation:
+                raise KeyError("give an operation id, or --capability <id> to approve a capability's operation set")
+            op_id = service.resolve_operation_id(load_operations(package), args.operation)
+            errors, _ = approval_blockers(load_operations(package)[op_id])
             if errors:
-                print(f"refused: {args.operation} has validation errors\n{text}", file=sys.stderr)
+                print(f"refused: {op_id} has validation errors\n" + "\n".join(
+                    f"  {f.rule}: {f.message}" for f in errors), file=sys.stderr)
                 return 1
-            review_set, name = service.operation_reviews(package, [args.operation])
+            review_set, name = service.operation_reviews(package, [op_id])
             r = review_set["operations"][0]
             doc, _ = write_review_artifacts(package, review_set, name)
             render_approval(make_console(), r, package.name, str(doc.parent / appendix_name(r["id"])))
@@ -281,7 +291,67 @@ def _confirmation_code() -> str:
     return secrets.token_hex(3).upper()
 
 
-def human_confirmation(kind: str, target_id: str, meaning: str) -> Optional[str]:
+def _approve_operation_set(package, cap_id: str) -> int:
+    """One human approval ceremony for the operations a capability references (technical approval).
+
+    Each operation still records its own approval (reviewer, time, revision, content hash). Refused
+    when any referenced operation has validation errors or open technical model questions."""
+    from ifs_agent_ops.cli.review_view import make_console, render_operation_set_approval, render_review_set
+    from ifs_agent_ops.operations import service
+    from ifs_agent_ops.operations.review_markdown import write_review_artifacts
+    from ifs_agent_ops.operations.store import approve, load_operations
+    from ifs_agent_ops.operations.validate import approval_blockers
+
+    review_set, name = service.operation_reviews(package, None, cap_id)
+    ops = load_operations(package)
+    reviews = review_set["operations"]
+    console = make_console()
+    render_review_set(console, review_set, package.name, "summary")
+    write_review_artifacts(package, review_set, name)
+
+    blocked = []
+    for r in reviews:
+        errors, questions = approval_blockers(ops[r["id"]])
+        if errors or questions:
+            blocked.append((r["id"], [f"{f.rule}: {f.message}" for f in errors] +
+                            [f"open technical model question: {q}" for q in questions]))
+    if blocked:
+        print(f"\nrefused: {len(blocked)} operation(s) in {cap_id} have validation errors or open technical "
+              "model questions; resolve them (or review them individually) first:", file=sys.stderr)
+        for op_id, reasons in blocked:
+            print(f"  {op_id}", file=sys.stderr)
+            for reason in reasons:
+                print(f"    - {reason}", file=sys.stderr)
+        return 1
+    pending = [r for r in reviews if not (r["status"] == "approved" and r["approval_current"])]
+    current = [r for r in reviews if r not in pending]
+    if not pending:
+        console.print(f"\nAll {len(reviews)} operation(s) used by {cap_id} already have a current technical approval.",
+                      markup=False)
+        return 0
+    render_operation_set_approval(console, cap_id, pending, current)
+    acknowledgement = f"approve {len(pending)} operations for {cap_id}"
+    reviewer = human_confirmation(
+        "operation set", acknowledgement,
+        f"Technical approval of {len(pending)} operation(s) used by {cap_id}, each recorded separately.",
+        prompt=f"Type exactly '{acknowledgement}' to approve this operation set: ")
+    if reviewer is None:
+        return 1
+    latest = load_operations(package)  # refuse if anything changed since the review was shown
+    changed = [r["id"] for r in pending if r["id"] not in latest or latest[r["id"]].revision != r["revision"]
+               or latest[r["id"]].technical_hash() != r["content_sha256"]]
+    if changed:
+        print("refused: changed since the review was shown: " + ", ".join(changed), file=sys.stderr)
+        return 1
+    for r in pending:
+        op = approve(package, r["id"], reviewer)
+        console.print(f"approved {op.id} (revision {op.revision}, sha256 {op.approval.content_sha256[:12]})",
+                      markup=False)
+    console.print(f"{len(pending)} operation(s) approved by {reviewer}; runtime validation unchanged.", markup=False)
+    return 0
+
+
+def human_confirmation(kind: str, target_id: str, meaning: str, prompt: Optional[str] = None) -> Optional[str]:
     """Approval gate: interactive terminal, a one-time code and the id typed back, and a name.
 
     Returns the reviewer name, or None when refused. Automated callers (scripts, agents, CI, pipes,
@@ -298,7 +368,7 @@ def human_confirmation(kind: str, target_id: str, meaning: str) -> Optional[str]
         if _ask("Type the confirmation code: ").strip().upper() != code:
             print("refused: the confirmation code did not match", file=sys.stderr)
             return None
-        if _ask(f"Type the {kind} id to approve it: ").strip() != target_id:
+        if _ask(prompt or f"Type the {kind} id to approve it: ").strip() != target_id:
             print("refused: the id did not match", file=sys.stderr)
             return None
         reviewer = _ask("Your name (recorded with the approval): ").strip()
@@ -475,7 +545,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                                                            "finding ungrouped")
     _add_output(o_rev)
     o_appr = ops.add_parser("approve", help="technical approval by a human (interactive terminal only)")
-    o_appr.add_argument("operation")
+    o_appr.add_argument("operation", nargs="?", help="one operation id (individual review)")
+    o_appr.add_argument("--capability", help="approve every operation the capability uses, in one ceremony")
     o_appr.add_argument("--package", required=True)
     ops.add_parser("schema", help="print the JSON Schema of operations and workflows")
 

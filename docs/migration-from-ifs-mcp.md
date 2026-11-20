@@ -271,3 +271,25 @@ capability leaves out as `excluded`, `deferred` or `validate-at-runtime`.
 
 Executing capabilities against IFS (request rendering, step execution, composite records, response
 headers) is Phase 11 work, recorded in roadmap §6.3. It was not built in Phase 7b.
+
+### Approval ergonomics (Phase 7c follow-up)
+
+- **Capability-scoped approval:** `operations approve --capability <id> --package <p>` runs one review
+  and one human ceremony for every operation a capability references.
+  - The screen shows the capability overview, the exact operation ids, revisions and content hashes, and
+    the CHECK items being confirmed, plus what is and is not approved. Runtime requirements appear
+    separately.
+  - The ceremony needs an interactive terminal, a one-time code, the typed acknowledgement
+    `approve <n> operations for <id>`, and a name.
+  - It is refused if any referenced operation has validation errors or open technical model questions,
+    or if an operation changes between the review and the confirmation.
+  - Each operation records its own approval (`approved_at`, `approved_by`, `revision`,
+    `content_sha256`). `runtime_validation` is untouched. `operations approve <id>` remains for
+    individual review.
+- **Re-approval:** approval checks validate the definition as a draft. An operation whose approval
+  became stale (`changed-since-approval`) can be reviewed and approved again.
+- **Small approval diffs:** operation and capability approval now replace only the top-level `status`
+  and `approval` entries in the YAML file (`operations/yaml_persist.py`). The rest of a hand-authored
+  file (comments, flow mappings, folded text) is untouched. The patched text is re-parsed and compared
+  with the intended model before it is written; if they differ, the full serialiser is used instead.
+  Content hashes are computed on the parsed model, so formatting never changes identity.

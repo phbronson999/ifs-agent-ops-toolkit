@@ -389,3 +389,42 @@ def render_approval(console: Console, r: dict, package_name: str, report_path: s
                            "Carried forward:", style=LEVEL_STYLE["runtime"]))
         for line in runtime:
             console.print(line)
+
+
+def render_operation_set_approval(console: Console, cap_id: str, pending: list[dict], current: list[dict]) -> None:
+    """Confirmation screen for capability-scoped technical approval (one ceremony, per-operation records)."""
+    console.print()
+    t = Table(box=_box(console), header_style="bold",
+              title=f"YOU ARE APPROVING these {len(pending)} operation(s) used by {cap_id}")
+    t.add_column("Operation id", overflow="fold")
+    t.add_column("Rev", justify="right", no_wrap=True)
+    t.add_column("Content sha256", no_wrap=True)
+    t.add_column("State", no_wrap=True)
+    t.add_column("Checks", justify="right", no_wrap=True)
+    for r in pending:
+        t.add_row(r["id"], str(r["revision"]), r["content_sha256"][:12], _state_text(r["state"]),
+                  Text(str(r["attention"]["check"]), style=LEVEL_STYLE["check"] if r["attention"]["check"] else "dim"))
+    console.print(t)
+    if current:
+        console.print(Text(f"Already approved and current (unchanged): " + ", ".join(r["name"] for r in current),
+                           style="green"))
+    checks = [(r, g) for r in pending for g in r["finding_groups"] if g["level"] == "check"]
+    if checks:
+        body = Text()
+        for r, g in checks:
+            body.append(f"? {r['name']}: ", style=LEVEL_STYLE["check"])
+            body.append(g["summary"] + (f" [{', '.join(g['subjects'])}]" if g["count"] > 1 and g["subjects"] else "")
+                        + "\n")
+        console.print(Panel(body, title=Text(f"CHECK ITEMS YOU ARE CONFIRMING ({len(checks)})",
+                                             style=LEVEL_STYLE["check"]), title_align="left", box=_box(console)))
+    statement = Text.assemble(
+        ("YOU ARE APPROVING\n", "bold"),
+        "  For each operation listed: \"This is a technically correct canonical representation of the IFS "
+        "operation.\"\n  Each operation records its own approval (reviewer, time, revision, content hash); a later "
+        "change to one operation invalidates only that operation's approval.\n\n",
+        ("YOU ARE NOT APPROVING\n", "bold"),
+        "\n".join(f"  - {x}" for x in pending[0]["not_approving"]))
+    console.print(Panel(statement, box=_box(console)))
+    reqs = sum(len(r["runtime_validation"]["requirements"]) for r in pending)
+    console.print(Text(f"Runtime validation stays as it is ({reqs} requirement(s) carried forward; not part of this "
+                       "approval).", style=LEVEL_STYLE["runtime"]))
