@@ -144,6 +144,37 @@ def test_redaction_keeps_batch_protocol_and_redacts_inside():
     assert "ORD-1" not in body and mapping["ORD-1"] in body
 
 
+def test_base64_text_bodies_are_cleaned_like_any_other_and_keep_data_flow():
+    """The browser extension stores $batch multipart responses base64-encoded (DevTools exports use text).
+    Sanitizing, host normalisation, redaction and the leak checks must all see inside them."""
+    import base64
+    from ifs_agent_ops.recordings.importer import _fingerprint
+    from ifs_agent_ops.recordings.redact import business_values, normalize_hosts
+    from ifs_agent_ops.recordings.sanitize import sanitize_har
+
+    har = sample_har()
+    for e in har["log"]["entries"]:
+        e["request"]["url"] = e["request"]["url"].replace("ifs.example", "ifs-real.corp.local")
+    content = har["log"]["entries"][3]["response"]["content"]
+    text = content["text"].replace('{"OrderNo"', '{"@odata.context":"https://ifs-real.corp.local/x","OrderNo"')
+    content.update(text=base64.b64encode(text.encode()).decode(), encoding="base64")
+    image = {"mimeType": "image/png", "encoding": "base64", "text": base64.b64encode(b"\x89PNG\x00\xff").decode()}
+    har["log"]["entries"][9]["response"]["content"] = dict(image)
+    assert "ORD-1" in business_values(har)[0]                      # the survivor check sees inside it too
+
+    clean, report = sanitize_har(har)
+    assert report.get("binary_body_removed") == 1                   # only the image: not kept at all
+    assert clean["log"]["entries"][9]["response"]["content"] == {"mimeType": "image/png", "text": "<binary body removed>"}
+    clean, hosts = normalize_hosts(clean)
+    out, mapping = redact_values(clean, seed=b"t")
+    batch = out["log"]["entries"][3]["response"]["content"]
+    assert "encoding" not in batch and "HTTP/1.1 201 Created" in batch["text"]   # stored as text now
+    assert "ifs-real" not in json.dumps(out) and "ifs.example" in batch["text"]
+    assert "ORD-1" not in batch["text"] and mapping["ORD-1"] in batch["text"]
+    assert redact_values(har, seed=b"t")[0]["log"]["entries"][9]["response"]["content"] == image  # redaction alone: untouched
+    assert _fingerprint(out)[:2] == _fingerprint(har)[:2]           # same calls and data flow as the original
+
+
 # ── drafting ─────────────────────────────────────────────────────────────────
 
 def test_parse_path_respects_quotes():

@@ -14,6 +14,27 @@ from pathlib import Path
 from typing import Optional, Union
 
 
+def decode_text_bodies(har: dict) -> int:
+    """In place: store base64-encoded response bodies that are UTF-8 text as plain text, as DevTools exports do.
+
+    Browsers hand some bodies over base64-encoded (e.g. $batch multipart responses captured by the extension).
+    Sanitizing, host normalisation, value redaction and the leak checks work on text, so every one of them
+    decodes first; binary bodies (images, files) stay base64. Returns how many bodies were decoded."""
+    decoded = 0
+    for e in har.get("log", {}).get("entries", []) or []:
+        content = (e.get("response") or {}).get("content") or {}
+        if content.get("encoding") != "base64" or not isinstance(content.get("text"), str):
+            continue
+        try:
+            text = base64.b64decode(content["text"], validate=True).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            continue
+        content["text"] = text
+        del content["encoding"]
+        decoded += 1
+    return decoded
+
+
 @dataclass
 class ObservedCall:
     index: int                      # position in the HAR (0-based); the recorded order
