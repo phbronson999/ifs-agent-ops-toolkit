@@ -146,6 +146,81 @@ ifs-agent-ops capture import <session> --package ifs-customer-orders
 
 Or tell Claude your intent: the MCP server (`capture_*` tools) proposes and tracks the plan.
 
+## Reviewing and approving
+
+A recording becomes usable in three reviews. The first is a look at the evidence. The other two are the
+approval gates described in the [operation model](docs/operation-model.md).
+
+### 1. Review the imported recording, then commit it
+
+`capture import` writes the recording into the package but doesn't commit it. Check the following before
+you commit:
+
+- **Steps:** each plan step holds the calls you expect. For example, the order is created in "Create order
+  header", and each line is posted in its own step.
+- **No real data:** order and customer numbers are pseudo-values, the host is `ifs.example`, and binary
+  bodies such as images read `<binary body removed>`.
+- **Nothing you don't want kept:** if something shouldn't be there, re-record or re-import instead of
+  editing the file by hand.
+
+```powershell
+# the analysis: calls grouped by plan step, the writes, and the data flow between calls
+ifs-agent-ops har analyze <package>\recordings\<workflow>\<session>.har
+# the plan as saved with the recording: step statuses and the calls that belong to each
+code <package>\recordings\<workflow>\<session>.annotations.yaml
+```
+
+When the recording looks right, commit it in the package repository.
+
+### 2. Operations: technically correct
+
+```powershell
+ifs-agent-ops operations draft --package ifs-customer-orders   # draft operations and workflows from every recording
+ifs-agent-ops operations list  --package ifs-customer-orders   # operation ids and their status (draft, approved)
+```
+
+Review and approve work on a chosen set of operations. Either pick every operation a capability uses with
+`--capability`, or name the operations; a unique part of an ID is enough:
+
+```powershell
+# report in <package>/.ifs-agent-ops/review/operations/
+ifs-agent-ops operations review --package ifs-customer-orders --capability create-customer-order
+ifs-agent-ops operations review --package ifs-customer-orders CreateChangeRequest MandatoryPrePosting
+
+# you approve, in an interactive terminal: every operation of a capability at once, or one operation
+ifs-agent-ops operations approve --package ifs-customer-orders --capability create-customer-order
+ifs-agent-ops operations approve --package ifs-customer-orders CreateChangeRequest
+```
+
+The review report lists every finding. An **UNRESOLVED** note blocks approval until it's resolved. Add
+`--details` or `--full` to `operations review` for more.
+
+### 3. Capability: the business contract
+
+A capability is curated, not drafted. You write it, with Claude's help, in
+`capabilities/<id>.yaml`. It references the approved operations and states where every value comes from.
+
+```powershell
+ifs-agent-ops capabilities validate --package ifs-customer-orders               # check it against the operations
+ifs-agent-ops capabilities review   --package ifs-customer-orders <capability>  # report in <package>/.ifs-agent-ops/review/
+ifs-agent-ops capabilities approve  --package ifs-customer-orders <capability>  # you approve, in an interactive terminal
+```
+
+### Then generate
+
+Only approved capabilities generate artifacts:
+
+```powershell
+ifs-agent-ops skills generate    --package ifs-customer-orders   # agent skills
+ifs-agent-ops connector generate --package ifs-customer-orders   # Power Platform custom connector
+```
+
+`--check` reports what would change without writing anything.
+
+Both approve commands only run in an interactive terminal: they show a one-time code, then ask you to
+type back the ID and enter your name. They refuse to run from a script or from Claude, because a person
+must approve. Claude can run the drafts and reviews and walk you through the reports.
+
 ## Design Principles
 
 - Define an operation once and generate dependent artifacts from it.
