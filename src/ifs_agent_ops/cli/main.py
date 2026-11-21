@@ -267,7 +267,7 @@ def cmd_operations(args: argparse.Namespace) -> int:
             r = review_set["operations"][0]
             doc, _ = write_review_artifacts(package, review_set, name)
             render_approval(make_console(), r, package.name, str(doc.parent / appendix_name(r["id"])))
-            reviewer = human_confirmation("operation", r["id"], f"Technical approval of {r['id']}.")
+            reviewer = human_confirmation("operation", f"Technical approval of {r['id']}.", package.root)
             if reviewer is None:
                 return 1
             op = approve(package, r["id"], reviewer)
@@ -321,9 +321,9 @@ def _approve_operation_set(package, cap_id: str) -> int:
         return 0
     render_operation_set_approval(console, cap_id, plan.pending, plan.current)
     reviewer = human_confirmation(
-        "operation set", plan.acknowledgement,
+        "operation set",
         f"Technical approval of {len(plan.pending)} operation(s) used by {cap_id}, each recorded separately.",
-        prompt=f"Type exactly '{plan.acknowledgement}' to approve this operation set: ")
+        package.root)
     if reviewer is None:
         return 1
     try:
@@ -338,32 +338,29 @@ def _approve_operation_set(package, cap_id: str) -> int:
     return 0
 
 
-def human_confirmation(kind: str, target_id: str, meaning: str, prompt: Optional[str] = None) -> Optional[str]:
-    """Approval gate: interactive terminal, a one-time code and the id typed back, and a name.
+def human_confirmation(kind: str, meaning: str, root=None) -> Optional[str]:
+    """Approval gate: interactive terminal and a one-time code typed back.
 
-    Returns the reviewer name, or None when refused. Automated callers (scripts, agents, CI, pipes,
-    or a null stdin, which Windows reports as a terminal) are refused: they either have no
-    terminal, hit end-of-input, or cannot know the one-time code printed only now.
+    Returns the reviewer name (git user.name, else the OS login), or None when refused. Automated
+    callers (scripts, agents, CI, pipes, or a null stdin, which Windows reports as a terminal) are
+    refused: they either have no terminal, hit end-of-input, or cannot know the one-time code
+    printed only now.
     """
+    from ifs_agent_ops.operations.approval import reviewer_name
+
     if not _is_interactive():
         print(f"refused: approving this {kind} requires a human at an interactive terminal "
               "(no automation, agents or pipes)", file=sys.stderr)
         return None
     code = _confirmation_code()
-    print(f"\n{meaning}\n\nOne-time confirmation code: {code}\n")
+    reviewer = reviewer_name(root)
+    print(f"\n{meaning}\n\nApproving as: {reviewer}\nOne-time confirmation code: {code}\n")
     try:
-        if _ask("Type the confirmation code: ").strip().upper() != code:
+        if _ask("Type the confirmation code to approve: ").strip().upper() != code:
             print("refused: the confirmation code did not match", file=sys.stderr)
             return None
-        if _ask(prompt or f"Type the {kind} id to approve it: ").strip() != target_id:
-            print("refused: the id did not match", file=sys.stderr)
-            return None
-        reviewer = _ask("Your name (recorded with the approval): ").strip()
     except (EOFError, KeyboardInterrupt):
         print(f"\nrefused: approving this {kind} needs interactive input from a human", file=sys.stderr)
-        return None
-    if not reviewer:
-        print("refused: a reviewer name is required", file=sys.stderr)
         return None
     return reviewer
 
@@ -429,12 +426,12 @@ def cmd_capabilities(args: argparse.Namespace) -> int:
                 for n in cap.review_notes:
                     print(f"  - {n}")
             reviewer = human_confirmation(
-                "capability", cap_id,
+                "capability",
                 "Capability approval: this is the intentional and safe business contract that downstream "
                 "agents and applications may use. Approval pins this exact content and the revisions of "
                 "the operations it uses. It does NOT claim runtime validation: runtime status stays "
                 f"'{cap.runtime_validation.status}' with {len(cap.runtime_validation.requirements)} "
-                "requirement(s) carried forward.")
+                "requirement(s) carried forward.", package.root)
             if reviewer is None:
                 return 1
             approved = approve_capability(package, cap_id, reviewer)

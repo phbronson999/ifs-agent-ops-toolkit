@@ -204,8 +204,8 @@ downstream agents and applications may use. It is a separate model from the obse
 | `capabilities schema` | JSON Schema |
 
 **Approval is human-only.** `operations approve` and `capabilities approve` refuse unless stdin and
-stdout are an interactive terminal, then require a one-time code shown on screen, the id typed back
-and the reviewer's name; EOF or an interrupt refuses. There is no MCP approval tool (a test enforces
+stdout are an interactive terminal, then require the one-time code shown on screen to be typed back
+(the reviewer's name is taken from git `user.name`, or the OS login); EOF or an interrupt refuses. There is no MCP approval tool (a test enforces
 it). Capability approval also refuses while any validation error exists, and records the reviewer,
 time, a SHA-256 of the capability content and the revision of every operation it uses: editing the
 capability or re-drafting a referenced operation afterwards invalidates the approval.
@@ -279,8 +279,8 @@ headers) is Phase 11 work, recorded in roadmap §6.3. It was not built in Phase 
   - The screen shows the capability overview, the exact operation ids, revisions and content hashes, and
     the CHECK items being confirmed, plus what is and is not approved. Runtime requirements appear
     separately.
-  - The ceremony needs an interactive terminal, a one-time code, the typed acknowledgement
-    `approve <n> operations for <id>`, and a name.
+  - The ceremony needs an interactive terminal and the one-time code typed back; the reviewer name is
+    taken from git `user.name` (or the OS login).
   - It is refused if any referenced operation has validation errors or open technical model questions,
     or if an operation changes between the review and the confirmation.
   - Each operation records its own approval (`approved_at`, `approved_by`, `revision`,

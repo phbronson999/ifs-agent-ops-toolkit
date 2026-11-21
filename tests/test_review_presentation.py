@@ -122,11 +122,11 @@ def test_approval_gate_unchanged_and_shows_review_first(pkg, monkeypatch, capsys
     assert "YOU ARE NOT APPROVING" in out and "interactive terminal" in err
     monkeypatch.setattr(cli, "_is_interactive", lambda: True)
     monkeypatch.setattr(cli, "_confirmation_code", lambda: "ABC123")
-    answers = iter(["ABC123", "wrong-id"])
+    answers = iter(["WRONG1"])
     monkeypatch.setattr(cli, "_ask", lambda p: next(answers))
-    assert cli.main(argv) == 1 and "id did not match" in capsys.readouterr().err
+    assert cli.main(argv) == 1 and "code did not match" in capsys.readouterr().err
     assert load_operations(pkg)[OP].status == "draft"
-    answers = iter(["abc123", OP, "Pat Reviewer"])
+    answers = iter(["abc123"])
     monkeypatch.setattr(cli, "_ask", lambda p: next(answers))
     assert cli.main(argv) == 0
     approved = load_operations(pkg)[OP]

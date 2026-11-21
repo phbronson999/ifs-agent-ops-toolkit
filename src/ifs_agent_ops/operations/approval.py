@@ -17,6 +17,26 @@ class ApprovalChanged(RuntimeError):
     """Something changed between showing the review and the human's confirmation."""
 
 
+def reviewer_name(root=None) -> str:
+    """The name recorded with an approval: git ``user.name`` for the package repo, else the OS login.
+
+    The human gate is the one-time code typed back; the name is attribution, so it is not asked for."""
+    import getpass
+    import subprocess
+
+    try:
+        out = subprocess.run(["git", "config", "user.name"], cwd=root, capture_output=True, text=True, timeout=5,
+                             check=False)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        return getpass.getuser()
+    except Exception:  # noqa: BLE001 - getuser raises various errors when no login name is available
+        return "unknown"
+
+
 @dataclass
 class OperationSetPlan:
     """The operations a capability uses, split by what technical approval can do with them."""
@@ -26,11 +46,6 @@ class OperationSetPlan:
     blocked: list[tuple[str, list[str]]] = field(default_factory=list)  # (operation id, reasons)
     pending: list[dict] = field(default_factory=list)                   # reviews needing (re-)approval
     current: list[dict] = field(default_factory=list)                   # reviews already currently approved
-
-    @property
-    def acknowledgement(self) -> str:
-        """The phrase the human types to approve the set."""
-        return f"approve {len(self.pending)} operations for {self.capability}"
 
 
 def blockers(package: Package, op_id: str, include_questions: bool = True) -> list[str]:
