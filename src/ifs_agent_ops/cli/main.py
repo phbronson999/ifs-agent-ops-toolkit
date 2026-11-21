@@ -298,57 +298,43 @@ def _approve_operation_set(package, cap_id: str) -> int:
     Each operation still records its own approval (reviewer, time, revision, content hash). Refused
     when any referenced operation has validation errors or open technical model questions."""
     from ifs_agent_ops.cli.review_view import make_console, render_operation_set_approval, render_review_set
-    from ifs_agent_ops.operations import service
+    from ifs_agent_ops.operations.approval import ApprovalChanged, apply_approvals, plan_operation_set
     from ifs_agent_ops.operations.review_markdown import write_review_artifacts
-    from ifs_agent_ops.operations.store import approve, load_operations
-    from ifs_agent_ops.operations.validate import approval_blockers
 
-    review_set, name = service.operation_reviews(package, None, cap_id)
-    ops = load_operations(package)
-    reviews = review_set["operations"]
+    plan = plan_operation_set(package, cap_id)
+    reviews = plan.review_set["operations"]
     console = make_console()
-    render_review_set(console, review_set, package.name, "summary")
-    write_review_artifacts(package, review_set, name)
+    render_review_set(console, plan.review_set, package.name, "summary")
+    write_review_artifacts(package, plan.review_set, plan.report_name)
 
-    blocked = []
-    for r in reviews:
-        errors, questions = approval_blockers(ops[r["id"]])
-        if errors or questions:
-            blocked.append((r["id"], [f"{f.rule}: {f.message}" for f in errors] +
-                            [f"open technical model question: {q}" for q in questions]))
-    if blocked:
-        print(f"\nrefused: {len(blocked)} operation(s) in {cap_id} have validation errors or open technical "
+    if plan.blocked:
+        print(f"\nrefused: {len(plan.blocked)} operation(s) in {cap_id} have validation errors or open technical "
               "model questions; resolve them (or review them individually) first:", file=sys.stderr)
-        for op_id, reasons in blocked:
+        for op_id, reasons in plan.blocked:
             print(f"  {op_id}", file=sys.stderr)
             for reason in reasons:
                 print(f"    - {reason}", file=sys.stderr)
         return 1
-    pending = [r for r in reviews if not (r["status"] == "approved" and r["approval_current"])]
-    current = [r for r in reviews if r not in pending]
-    if not pending:
+    if not plan.pending:
         console.print(f"\nAll {len(reviews)} operation(s) used by {cap_id} already have a current technical approval.",
                       markup=False)
         return 0
-    render_operation_set_approval(console, cap_id, pending, current)
-    acknowledgement = f"approve {len(pending)} operations for {cap_id}"
+    render_operation_set_approval(console, cap_id, plan.pending, plan.current)
     reviewer = human_confirmation(
-        "operation set", acknowledgement,
-        f"Technical approval of {len(pending)} operation(s) used by {cap_id}, each recorded separately.",
-        prompt=f"Type exactly '{acknowledgement}' to approve this operation set: ")
+        "operation set", plan.acknowledgement,
+        f"Technical approval of {len(plan.pending)} operation(s) used by {cap_id}, each recorded separately.",
+        prompt=f"Type exactly '{plan.acknowledgement}' to approve this operation set: ")
     if reviewer is None:
         return 1
-    latest = load_operations(package)  # refuse if anything changed since the review was shown
-    changed = [r["id"] for r in pending if r["id"] not in latest or latest[r["id"]].revision != r["revision"]
-               or latest[r["id"]].technical_hash() != r["content_sha256"]]
-    if changed:
-        print("refused: changed since the review was shown: " + ", ".join(changed), file=sys.stderr)
+    try:
+        approved = apply_approvals(package, plan.pending, reviewer)
+    except ApprovalChanged as exc:
+        print(f"refused: {exc}", file=sys.stderr)
         return 1
-    for r in pending:
-        op = approve(package, r["id"], reviewer)
+    for op in approved:
         console.print(f"approved {op.id} (revision {op.revision}, sha256 {op.approval.content_sha256[:12]})",
                       markup=False)
-    console.print(f"{len(pending)} operation(s) approved by {reviewer}; runtime validation unchanged.", markup=False)
+    console.print(f"{len(approved)} operation(s) approved by {reviewer}; runtime validation unchanged.", markup=False)
     return 0
 
 
@@ -626,6 +612,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="ifs-agent-ops")
     parser.add_argument("--version", action="store_true", help="print the toolkit version")
     sub = parser.add_subparsers(dest="command")
+    sub.add_parser("tui", help="guided review and approval (also: run ifs-agent-ops with no arguments)")
     sub.add_parser("profiles", help="list IFS environment profiles and their sign-in state")
     doc = sub.add_parser("doctor", help="check machine readiness per capability (read-only)")
     doc.add_argument("--for", dest="capabilities", action="append", default=[],
@@ -822,7 +809,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_profiles(args)
     if args.command == "har":
         return cmd_har_sanitize(args) if args.har_command == "sanitize" else cmd_har_analyze(args)
-    parser.print_help()
+    from ifs_agent_ops import tui
+
+    if args.command == "tui":
+        return tui.run()
+    if tui.interactive():  # no command, a human at a terminal: the guided review TUI
+        return tui.run()
+    parser.print_help()  # no command from a script, agent or pipe: unchanged
     return 0
 
 

@@ -16,6 +16,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.5",
     "rich>=13",  # human CLI views (review); already present via mcp[cli]
+    "textual>=8,<9",  # guided review and approval TUI (ifs-agent-ops with no arguments)
 ]
 
 [project.optional-dependencies]
