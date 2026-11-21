@@ -94,7 +94,8 @@ def _dispatch(method: str, parts: list[str], body: dict) -> dict:
                                   "progress": s.progress(), "created_at": s.created_at} for s in store.list()]}
         if method == "POST":
             return service.create(store, body["intent"], list(body.get("tasks") or []),
-                                  body.get("workflow") or None, body.get("package") or None)
+                                  body.get("workflow") or None, body.get("package") or None,
+                                  list(body.get("optional") or []))
     if len(parts) >= 2 and parts[0] == "sessions":
         sid, rest = parts[1], parts[2:]
         if not rest and method == "GET":
@@ -113,11 +114,11 @@ def _dispatch(method: str, parts: list[str], body: dict) -> dict:
             return service.apply(store, sid, action, ts=body.get("ts"), task_id=body.get("task_id"))
         if rest == ["tasks"] and method == "POST":
             return service.apply(store, sid, "add", title=body["title"], description=body.get("description", ""),
-                                 position=body.get("position"), ts=body.get("ts"))
+                                 position=body.get("position"), ts=body.get("ts"), optional=body.get("optional"))
         if len(rest) == 2 and rest[0] == "tasks":
             if method == "PATCH":
                 return service.apply(store, sid, "edit", task_id=rest[1], title=body.get("title"),
-                                     description=body.get("description"))
+                                     description=body.get("description"), optional=body.get("optional"))
             if method == "DELETE":
                 return service.apply(store, sid, "remove", task_id=rest[1])
         if len(rest) == 3 and rest[0] == "tasks" and rest[2] == "move" and method == "POST":

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Iterable, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,6 +39,8 @@ class PlanTask(_M):
     title: str
     description: str = ""
     status: TaskStatus = "pending"
+    optional: bool = Field(False, description="The demonstrator marked this step optional: the business action "
+                                              "can be done without it, so it never makes the plan incomplete")
     added_during_recording: bool = False
     started_at: Optional[float] = Field(None, description="Epoch seconds when the task became current")
     ended_at: Optional[float] = Field(None, description="Epoch seconds when it was completed, skipped or stopped")
@@ -72,8 +74,8 @@ class CaptureSession(_M):
 
     @property
     def plan_complete(self) -> bool:
-        """Every task was completed or skipped."""
-        return bool(self.tasks) and all(t.status in _DONE for t in self.tasks)
+        """Every required task was completed or skipped (optional tasks may be left out or cut off)."""
+        return bool(self.tasks) and all(t.status in _DONE for t in self.tasks if not t.optional)
 
     def progress(self) -> dict:
         counts = {s: sum(1 for t in self.tasks if t.status == s)
@@ -104,14 +106,14 @@ class CaptureSession(_M):
         self.intent = intent.strip()
 
     def add_task(self, title: str, description: str = "", position: Optional[int | str] = None,
-                 ts: Optional[float] = None) -> PlanTask:
+                 ts: Optional[float] = None, optional: bool = False) -> PlanTask:
         """Add a task. ``position`` is 1-based or ``"end"``; while recording ``"next"`` (the default) places
         it right after the current task. Tasks added while recording are marked as such."""
         self._editable()
         if not title.strip():
             raise CaptureError("task title must not be empty")
         task = PlanTask(id=f"t{self.next_task_number}", title=title.strip(), description=description.strip(),
-                        added_during_recording=self.status == "recording")
+                        optional=optional, added_during_recording=self.status == "recording")
         self.next_task_number += 1
         if position in (None, "end") and self.status == "planning" or position == "end":
             index = len(self.tasks)
@@ -125,11 +127,18 @@ class CaptureSession(_M):
             self._activate(task, ts or _now())
         return task
 
-    def edit_task(self, task_id: str, title: Optional[str] = None, description: Optional[str] = None) -> PlanTask:
+    def edit_task(self, task_id: str, title: Optional[str] = None, description: Optional[str] = None,
+                  optional: Optional[bool] = None) -> PlanTask:
+        """Change a task's title, description or optional flag. Finished tasks keep their title and description
+        (they are evidence), but can still be marked optional or required until the session stops."""
         self._editable()
         task = self.task(task_id)
-        if task.status in _DONE:
+        if (title is not None or description is not None) and task.status in _DONE:
             raise CaptureError(f"{task_id} is {task.status}; finished tasks keep their title")
+        if title is not None and not title.strip():
+            raise CaptureError("task title must not be empty")
+        if optional is not None:
+            task.optional = bool(optional)
         if title is not None:
             if not title.strip():
                 raise CaptureError("task title must not be empty")
@@ -230,7 +239,9 @@ def new_session_id(workflow: Optional[str], now: Optional[datetime] = None) -> s
 
 
 def new_session(intent: str, tasks: list[str] = (), workflow: Optional[str] = None,
-                package: Optional[str] = None, now: Optional[datetime] = None) -> CaptureSession:
+                package: Optional[str] = None, now: Optional[datetime] = None,
+                optional: Iterable[str] = ()) -> CaptureSession:
+    """A planning session. ``optional`` lists the titles of tasks the demonstrator marked optional."""
     if not intent.strip():
         raise CaptureError("intent must not be empty")
     if workflow and not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", workflow):
@@ -238,6 +249,10 @@ def new_session(intent: str, tasks: list[str] = (), workflow: Optional[str] = No
     now = now or datetime.now(timezone.utc)
     s = CaptureSession(id=new_session_id(workflow, now), intent=intent.strip(), workflow=workflow or None,
                        package=package or None, created_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    marked = {t.strip() for t in optional}
+    unknown = marked - {t.strip() for t in tasks}
+    if unknown:
+        raise CaptureError(f"optional task(s) not in the plan: {', '.join(sorted(unknown))}")
     for title in tasks:
-        s.add_task(title)
+        s.add_task(title, optional=title.strip() in marked)
     return s

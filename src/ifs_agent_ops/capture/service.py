@@ -49,8 +49,8 @@ def resolve(store: CaptureStore, session_id: Optional[str]) -> str:
 
 
 def create(store: CaptureStore, intent: str, tasks: list[str], workflow: Optional[str] = None,
-           package: Optional[str] = None) -> dict:
-    return view(store, store.create(new_session(intent, tasks, workflow, package)))
+           package: Optional[str] = None, optional: Optional[list[str]] = None) -> dict:
+    return view(store, store.create(new_session(intent, tasks, workflow, package, optional=optional or ())))
 
 
 def apply(store: CaptureStore, session_id: Optional[str], action: str, **kw) -> dict:
@@ -60,15 +60,16 @@ def apply(store: CaptureStore, session_id: Optional[str], action: str, **kw) -> 
         if action == "intent":
             s.set_intent(kw["intent"])
         elif action == "add":
-            s.add_task(kw["title"], kw.get("description", ""), kw.get("position"), ts=kw.get("ts"))
+            s.add_task(kw["title"], kw.get("description", ""), kw.get("position"), ts=kw.get("ts"),
+                       optional=bool(kw.get("optional")))
         elif action == "edit":
-            s.edit_task(kw["task_id"], kw.get("title"), kw.get("description"))
+            s.edit_task(kw["task_id"], kw.get("title"), kw.get("description"), kw.get("optional"))
         elif action == "remove":
             s.remove_task(kw["task_id"])
         elif action == "move":
             s.move_task(kw["task_id"], int(kw["position"]))
         elif action == "set_plan":
-            _set_plan(s, kw["tasks"])
+            _set_plan(s, kw["tasks"], kw.get("optional"))
         elif action == "start":
             s.start(kw["ifs_origin"], kw.get("ts"))
         elif action == "complete":
@@ -82,17 +83,25 @@ def apply(store: CaptureStore, session_id: Optional[str], action: str, **kw) -> 
     return view(store, store.load(sid))
 
 
-def _set_plan(s: CaptureSession, titles: list[str]) -> None:
-    """Replace the plan before recording, keeping the ids of tasks whose title is unchanged."""
+def _set_plan(s: CaptureSession, titles: list[str], optional: Optional[list[str]] = None) -> None:
+    """Replace the plan before recording, keeping the ids of tasks whose title is unchanged. ``optional`` lists
+    the titles to mark optional (every other task becomes required); None keeps each kept task's flag."""
     if s.status != "planning":
         raise CaptureError("the whole plan can only be replaced before recording; add or skip tasks instead")
+    marked = None if optional is None else {t.strip() for t in optional}
+    unknown = (marked or set()) - {t.strip() for t in titles}
+    if unknown:
+        raise CaptureError(f"optional task(s) not in the plan: {', '.join(sorted(unknown))}")
     old = {t.title: t for t in s.tasks}
     s.tasks = []
     for title in titles:
         if title.strip() in old:
-            s.tasks.append(old.pop(title.strip()))
+            task = old.pop(title.strip())
+            s.tasks.append(task)
         else:
-            s.add_task(title)
+            task = s.add_task(title)  # appends
+        if marked is not None:
+            task.optional = title.strip() in marked
 
 
 def ingest(store: CaptureStore, session_id: str, events: list[dict]) -> dict:

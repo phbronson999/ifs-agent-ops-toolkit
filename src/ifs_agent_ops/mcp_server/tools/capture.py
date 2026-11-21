@@ -20,15 +20,17 @@ def _run(fn, *args, **kw) -> str:
         return _out({"error": str(exc)})
 
 
-async def create_session(intent: str, tasks: list[str], workflow: str = "", package: str = "") -> str:
-    return _run(service.create, get_store(), intent, tasks, workflow or None, package or None)
+async def create_session(intent: str, tasks: list[str], workflow: str = "", package: str = "",
+                         optional_tasks: Optional[list[str]] = None) -> str:
+    return _run(service.create, get_store(), intent, tasks, workflow or None, package or None, optional_tasks)
 
 
-async def set_plan(session_id: str, tasks: list[str], intent: str = "") -> str:
+async def set_plan(session_id: str, tasks: list[str], intent: str = "",
+                   optional_tasks: Optional[list[str]] = None) -> str:
     def go():
         if intent:
             service.apply(get_store(), session_id, "intent", intent=intent)
-        return service.apply(get_store(), session_id, "set_plan", tasks=tasks)
+        return service.apply(get_store(), session_id, "set_plan", tasks=tasks, optional=optional_tasks)
     return _run(go)
 
 
@@ -53,10 +55,11 @@ async def skip_task(session_id: str = "", task_id: str = "") -> str:
     return _run(service.apply, get_store(), session_id or None, "skip", task_id=task_id or None)
 
 
-async def add_task(title: str, session_id: str = "", description: str = "", position: str = "") -> str:
+async def add_task(title: str, session_id: str = "", description: str = "", position: str = "",
+                   optional: bool = False) -> str:
     pos: Optional[object] = int(position) if position.isdigit() else (position or None)
     return _run(service.apply, get_store(), session_id or None, "add", title=title, description=description,
-                position=pos)
+                position=pos, optional=optional)
 
 
 async def stop(session_id: str = "") -> str:
