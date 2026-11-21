@@ -214,6 +214,73 @@ async def get_projection_enum_map(
     return await handler(projection_name, entity_set, include_reference_sets, rt().client)
 
 
+# ── Guided capture (intent -> recording plan -> task-bucketed browser recording) ──
+
+from ifs_agent_ops.capture import api as _capture_api  # noqa: E402
+from ifs_agent_ops.mcp_server.tools import capture as _capture  # noqa: E402
+
+# The browser extension streams events to /capture/v1/... on this server (same host and port as /mcp).
+mcp.custom_route(_capture_api.ROUTE, methods=_capture_api.METHODS, include_in_schema=False)(_capture_api.handle)
+
+_LOCAL_WRITE = mcp_types.ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+_LOCAL_READ = mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
+
+
+@mcp.tool(annotations=_LOCAL_WRITE)
+async def capture_create_session(intent: str, tasks: list[str], workflow: str = "", package: str = "") -> str:
+    """Start teaching the builder a capability: create a guided-capture session from the user's intent (e.g. 'I want to teach the builder how to create a customer order') and an ordered recording plan of business tasks the user will demonstrate in the IFS web UI (e.g. ['Create order header', 'Add order line', 'Add charge', 'Finish order']). This is the normal beginning of capability development; prefer it to asking for a DevTools HAR export. Agree the plan with the user BEFORE calling this: propose the tasks from the intent and let the user change, add, remove or reorder them. workflow is the package recordings folder (e.g. 'create-customer-order'); package is optional. Nothing is recorded yet: the user starts recording from the IFS Agent Ops browser extension's side panel. Sessions are local (toolkit home) and never committed."""
+    return await _capture.create_session(intent, tasks, workflow, package)
+
+
+@mcp.tool(annotations=_LOCAL_WRITE)
+async def capture_set_plan(session_id: str, tasks: list[str], intent: str = "") -> str:
+    """Replace the ordered recording plan of a session that has not started recording (tasks keep their ids when the title is unchanged), optionally changing the intent. Use it when the user edits or reorders the plan before recording. While recording, use capture_add_task or capture_skip_task instead."""
+    return await _capture.set_plan(session_id, tasks, intent)
+
+
+@mcp.tool(annotations=_LOCAL_READ)
+async def capture_status(session_id: str = "") -> str:
+    """Show a guided-capture session: intent, ordered plan with each task's status (pending/active/complete/skipped/incomplete), the current task, progress, recorded IFS requests per task, whether the plan is complete, and the next step. Without session_id, the session currently recording (or being planned) is shown."""
+    return await _capture.status(session_id)
+
+
+@mcp.tool(annotations=_LOCAL_READ)
+async def capture_list_sessions() -> str:
+    """List local guided-capture sessions with their intent, status, progress and the package recordings imported from them."""
+    return await _capture.list_sessions()
+
+
+@mcp.tool(annotations=_LOCAL_WRITE)
+async def capture_complete_task(session_id: str = "", task_id: str = "") -> str:
+    """Mark the current recording-plan task as complete when the user says they finished demonstrating it. The calls recorded since the task became current are attributed to it, and the next pending task becomes current. Pass task_id to guard against completing a different task than the one the user means."""
+    return await _capture.complete_task(session_id, task_id)
+
+
+@mcp.tool(annotations=_LOCAL_WRITE)
+async def capture_skip_task(session_id: str = "", task_id: str = "") -> str:
+    """Skip the current recording-plan task (e.g. the order needs no charge). Calls already recorded during it are kept and attributed to it; the next pending task becomes current."""
+    return await _capture.skip_task(session_id, task_id)
+
+
+@mcp.tool(annotations=_LOCAL_WRITE)
+async def capture_add_task(title: str, session_id: str = "", description: str = "", position: str = "") -> str:
+    """Add a task to the recording plan, also during recording when the user realises another business action needs to be demonstrated. While recording it goes right after the current task by default; position may be 'end' or a 1-based number. Tasks added during recording are marked as such."""
+    return await _capture.add_task(title, session_id, description, position)
+
+
+@mcp.tool(annotations=_LOCAL_WRITE)
+async def capture_stop(session_id: str = "") -> str:
+    """Stop a guided recording. The session, task boundaries and every recorded event are kept; a task still current becomes 'incomplete', and the plan is reported as complete or incomplete. The browser extension detaches from the IFS tab when it sees the stop."""
+    return await _capture.stop(session_id)
+
+
+@mcp.tool(annotations=_LOCAL_WRITE)
+async def capture_import(session_id: str, package: str, workflow: str = "", name: str = "",
+                         redact_values: bool = True) -> str:
+    """Import a stopped guided recording into an operation package through the record-import boundary (sanitize, host normalisation, value redaction, verification). The recording plan (intent, tasks, statuses, call ranges) is written into the recording's annotations, so analyze_recording groups calls by task and draft_operations tags observed workflow steps with their task. Only the sanitized recording enters the package; the raw capture stays local."""
+    return await _capture.import_session(session_id, package, workflow, name, redact_values)
+
+
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 
 def main(argv: Optional[list[str]] = None) -> None:

@@ -155,7 +155,20 @@ def build_sequence(calls: list[ObservedCall]) -> tuple[list[CallView], list[Data
     return views, links
 
 
-def render_sequence(views: list[CallView], links: list[DataLink], *, include_other: bool = False) -> str:
+def _plan_lines(plan: dict) -> list[str]:
+    state = "complete" if plan.get("complete") else "INCOMPLETE (not every task was completed or skipped)"
+    lines = ["### Recording plan", "", f"Intent: {plan.get('intent', '')}", f"Plan: {state}", ""]
+    for n, t in enumerate(plan.get("tasks", []), 1):
+        added = ", added during recording" if t.get("added_during_recording") else ""
+        span = f"calls #{t['entries'][0]}-#{t['entries'][1]}" if t.get("entries") else "no calls"
+        lines.append(f"{n}. [{t['id']}] {t['title']} - {t['status']}{added}; {span}")
+    if plan.get("unassigned_entries"):
+        lines.append("Outside any task: " + ", ".join(f"#{a}-#{b}" for a, b in plan["unassigned_entries"]))
+    return lines + [""]
+
+
+def render_sequence(views: list[CallView], links: list[DataLink], *, include_other: bool = False,
+                    plan: Optional[dict] = None) -> str:
     ifs = [v for v in views if v.kind != "other"]
     failed = sum(1 for v in ifs if v.failed)
     lines = [
@@ -165,11 +178,20 @@ def render_sequence(views: list[CallView], links: list[DataLink], *, include_oth
         *([f"IFS server tracing was on for {sum(v.traced for v in views)} call(s); payloads were unwrapped."]
           if any(v.traced for v in views) else []),
         "",
-        "### Sequence (recorded order)",
+        *(_plan_lines(plan) if plan else []),
+        "### Sequence (recorded order" + (", by plan task)" if plan else ")"),
     ]
+    from ifs_agent_ops.recordings.annotations import entry_tasks
+
+    owner = entry_tasks(plan)
+    titles = {t["id"]: f"{t['title']} ({t['status']})" for t in (plan or {}).get("tasks", [])}
+    heading: object = object()
     for v in views:
         if v.kind == "other" and not include_other:
             continue
+        if plan and owner.get(v.index) != heading:
+            heading = owner.get(v.index)
+            lines.append(f"#### Task {heading}: {titles[heading]}" if heading else "#### Outside any task")
         name = f"{v.service}/{v.target}" if v.service else "(non-IFS)"
         tag = " [action]" if v.is_action else (" [$batch]" if v.kind == "ifs-batch" else "")
         flags = " FAILED" if v.failed else ""

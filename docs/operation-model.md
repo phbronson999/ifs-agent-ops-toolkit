@@ -75,6 +75,15 @@ An observed workflow is the recorded sequence of IFS calls, with data-flow bindi
 UI-only lookups, refreshes, redundant reads, and validations triggered by UI behaviour. The pilot
 recording has 72 steps. It's kept as evidence and is **never** generated from directly.
 
+A recording made by guided capture also carries the demonstrator's **recording plan**:
+- `Workflow.plan` holds the intent, whether the plan is complete, and the ordered tasks with their
+  status.
+- Each `Step.task` names the task the call was made in.
+
+Curation uses this plan to see which calls belong to which business action. It is evidence from
+the human, not an instruction to the drafter: the drafter never merges calls across task boundaries,
+and nothing else changes.
+
 ## 2. Canonical operations
 
 A canonical operation is the complete, authoritative IFS API contract: the original path template,

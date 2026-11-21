@@ -383,3 +383,82 @@ pinned `$openapi?V2` and `$metadata`, and refuses when they don't match their `s
   - literal path parameters
 
 Approval gates are shared with the skill generator (`generators/gating.py`).
+
+## Phase 9a: guided capture (intent, recording plan, task-bucketed browser capture)
+
+The roadmap now starts capability development with the user's intent and a planned recording
+(roadmap §1.1). Two new phases follow:
+- **9a (this change):** guided capture.
+- **9b:** the development loop. It covers local Claude/MCP testing against TEST and local validation
+  before approval, through the direct-to-IFS mode moved from Phase 11.
+
+Phase 11 is now deployed-path validation only. Phase 10 (deployment) waits for 9b. Importing a
+DevTools HAR (`record import`) stays available for existing evidence.
+
+**Model** (`capture/session.py`):
+- A session holds an intent, an ordered plan of tasks, and the ordered network events.
+- Task status is one of pending, active, complete, skipped or incomplete. A task can also be marked
+  as added during recording.
+- While recording, exactly one task is active. Completing or skipping it makes the next pending task
+  active.
+- Each task has an interval `[started_at, ended_at)`. A request belongs to the task whose interval
+  contains its send time.
+- Stopping keeps everything. A task still active at stop becomes `incomplete`.
+- A plan is *complete* when every task is complete or skipped.
+
+**Storage:**
+- Sessions are local, in `<toolkit home>/captures/<session>/`: `session.yaml`, `events.jsonl`,
+  `requests.idx` and, on import, `capture.raw.har`.
+- Changes run under a lock file, so the MCP server, `capture serve` and the CLI can share a session.
+
+**Surfaces** (one service: `capture/service.py`):
+
+| Surface | Entry points |
+|---|---|
+| CLI | `ifs-agent-ops capture new / list / show / plan / complete / skip / add / stop / import / serve / extension` |
+| MCP | `capture_create_session`, `capture_set_plan`, `capture_status`, `capture_list_sessions`, `capture_complete_task`, `capture_skip_task`, `capture_add_task`, `capture_stop`, `capture_import` (tool inventory updated deliberately) |
+| Local API (for the extension) | `/capture/v1/...` on the MCP server's port, or `capture serve`; extension origins only, so web pages are refused |
+
+**Browser extension** (`browser-extension/`):
+- Manifest V3, for Edge or Chrome.
+- The **Rust/WASM core** (`core/`, crate `ifs-capture-core`) turns `chrome.debugger` Network events
+  into ordered capture events:
+  - IFS origin, XHR and fetch only
+  - credential headers removed before anything leaves the browser
+  - CDP monotonic times converted to wall-clock
+  - post data and bodies fetched on demand, redirects kept
+  - size-bounded batches
+- The **side panel** (thin JS) is the recording UI:
+  - define or edit the intent
+  - create, edit, reorder and remove tasks
+  - start recording
+  - show the current task and progress
+  - complete or skip the task, add a task while recording
+  - stop
+  - show whether the plan was complete or incomplete
+- Events and commands go through one ordered queue. A task boundary is the moment of the click.
+- The panel polls the session, so changes made in Claude or the CLI appear in it.
+
+**Into the package:**
+- `capture import` exports the stopped session as a local raw HAR and runs the existing
+  `record import` (sanitize, host normalisation, value redaction, verification).
+- The recording annotations gain a `plan` block: intent, completeness, tasks with status and
+  0-based entry ranges, and unassigned ranges. Business values the redactor replaced are also
+  replaced in the plan text.
+- `analyze_recording` / `har analyze` show the plan and group the sequence by task.
+- `draft_operations` writes `Workflow.plan` and `Step.task`.
+
+**Tests:**
+- `tests/test_capture.py` (10 tests):
+  - plan rules
+  - attribution
+  - ingest rules
+  - export ranges
+  - import, analysis and drafting
+  - API (including the origin refusal)
+  - CLI
+  - MCP
+- `cargo test` in `browser-extension/core` (5 tests).
+- `browser-extension/tests/wasm_smoke.mjs` (the built bindings; run by `build.ps1`).
+- `browser-extension/tests/e2e_edge.mjs`: the real extension in headless Edge records a planned
+  demonstration against a stand-in IFS (`fake_ifs.py`) and checks the per-task attribution.

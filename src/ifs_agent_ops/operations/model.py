@@ -172,7 +172,21 @@ class Binding(_Model):
 class Step(_Model):
     step: int
     operation: str
+    task: Optional[str] = Field(None, description="Recording-plan task the call was made in (id from the plan)")
     bindings: list[Binding] = Field(default_factory=list)
+
+
+class PlanTaskRef(_Model):
+    id: str
+    title: str
+    status: str
+
+
+class RecordingPlan(_Model):
+    """The demonstrator's intent and ordered tasks from the guided capture (semantic evidence)."""
+    intent: str
+    complete: bool
+    tasks: list[PlanTaskRef] = Field(default_factory=list)
 
 
 class Workflow(_Model):
@@ -186,6 +200,7 @@ class Workflow(_Model):
     title: str = ""
     description: str = ""
     recording: str
+    plan: Optional[RecordingPlan] = Field(None, description="Recording plan, when captured with one")
     steps: list[Step] = Field(default_factory=list)
     approval: Optional[Approval] = None
 

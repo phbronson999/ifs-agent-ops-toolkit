@@ -87,10 +87,11 @@ def cmd_har_sanitize(args: argparse.Namespace) -> int:
 
 def cmd_har_analyze(args: argparse.Namespace) -> int:
     from ifs_agent_ops.analysis.sequence import build_sequence, render_sequence
+    from ifs_agent_ops.recordings.annotations import load_plan
     from ifs_agent_ops.recordings.har import load_har
 
     views, links = build_sequence(load_har(args.input))
-    print(render_sequence(views, links, include_other=args.all))
+    print(render_sequence(views, links, include_other=args.all, plan=load_plan(args.input)))
     return 0
 
 
@@ -525,6 +526,92 @@ def cmd_connector(args: argparse.Namespace) -> int:
     return 1 if not gen.ok or stale else 0
 
 
+def cmd_capture(args: argparse.Namespace) -> int:
+    """Guided capture: intent -> recording plan -> task-bucketed browser recording -> package import."""
+    import json
+
+    from ifs_agent_ops.capture import service
+    from ifs_agent_ops.capture.render import extension_dir, render
+    from ifs_agent_ops.capture.session import CaptureError
+    from ifs_agent_ops.capture.store import CaptureStore
+    from ifs_agent_ops.workspace.package import PackageError
+
+    store = CaptureStore()
+    c = args.capture_command
+    try:
+        if c == "serve":
+            import uvicorn
+
+            from ifs_agent_ops.capture.api import app
+
+            print(f"capture API on http://127.0.0.1:{args.port}/capture/v1 (sessions in {store.root}); Ctrl+C stops",
+                  file=sys.stderr)
+            uvicorn.run(app(), host="127.0.0.1", port=args.port, log_level="warning")
+            return 0
+        if c == "extension":
+            folder = extension_dir()
+            if folder is None:
+                print("the browser extension is not in this installation (it ships with the toolkit source)")
+                return 1
+            built = (folder / "pkg" / "ifs_capture_core_bg.wasm").exists()
+            print(folder)
+            print("built" if built else "not built yet: run browser-extension/build.ps1")
+            return 0 if built else 1
+        if c == "list":
+            sessions = store.list()
+            for s in sessions:
+                p = s.progress()
+                print(f"{s.id:<40} {s.status:<10} {p['done']}/{p['total']}  {s.intent}")
+            if not sessions:
+                print(f"no capture sessions in {store.root}")
+            return 0
+        if c == "import":
+            from ifs_agent_ops.recordings.importer import ImportRefused
+            from ifs_agent_ops.workspace.discovery import find_package
+
+            try:
+                package = find_package(args.package)
+                result, plan = service.import_session(store, args.session, package, args.workflow, args.name,
+                                                      redact=False if args.keep_values else None, force=args.force)
+            except (ImportRefused, PackageError) as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+            print(f"imported    {result.recording}")
+            print(f"annotations {result.annotations}")
+            print(f"plan {'complete' if plan['complete'] else 'INCOMPLETE'}: "
+                  + ", ".join(f"{t['title']} ({t['status']}, {t['calls']} calls)" for t in plan["tasks"]))
+            for w in result.warnings:
+                print(f"warning: {w}")
+            return 0
+        if c == "new":
+            data = service.create(store, args.intent, args.task or [], args.workflow, args.package)
+        elif c == "show":
+            data = service.view(store, store.load(service.resolve(store, args.session)))
+        elif c == "plan":
+            sid = args.session
+            data = service.view(store, store.load(sid))
+            if args.intent:
+                data = service.apply(store, sid, "intent", intent=args.intent)
+            if args.add:
+                data = service.apply(store, sid, "add", title=args.add, position=args.at)
+            if args.edit:
+                data = service.apply(store, sid, "edit", task_id=args.edit[0], title=args.edit[1])
+            if args.remove:
+                data = service.apply(store, sid, "remove", task_id=args.remove)
+            if args.move:
+                data = service.apply(store, sid, "move", task_id=args.move[0], position=int(args.move[1]))
+        elif c == "add":
+            pos = int(args.position) if args.position and args.position.isdigit() else args.position
+            data = service.apply(store, args.session, "add", title=args.title, position=pos)
+        else:  # complete | skip | stop
+            data = service.apply(store, args.session, c, task_id=getattr(args, "task_id", None))
+    except CaptureError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(data, indent=2, ensure_ascii=False) if args.output == "json" else render(data))
+    return 0
+
+
 def _add_output(parser: argparse.ArgumentParser) -> None:
     """Output contract: human text by default; --output json is the structured result for automation."""
     parser.add_argument("--output", choices=["text", "json"], default="text",
@@ -573,6 +660,50 @@ def main(argv: Optional[list[str]] = None) -> int:
                        help="keep business values (only sanitize + host normalisation)")
     group.add_argument("--redact-values", action="store_true", help="redact business values (package default)")
     r_imp.add_argument("--force", action="store_true", help="replace an existing recording")
+
+    cap = sub.add_parser("capture", help="guided capture: intent, recording plan, task-bucketed browser recording"
+                         ).add_subparsers(dest="capture_command", required=True)
+    c_new = cap.add_parser("new", help="create a session from an intent and an ordered recording plan")
+    c_new.add_argument("intent", help='e.g. "I want to teach the builder how to create a customer order"')
+    c_new.add_argument("--task", action="append", help="plan task, in order (repeatable)")
+    c_new.add_argument("--workflow", help="package recordings folder, e.g. create-customer-order")
+    c_new.add_argument("--package", help="target package (optional)")
+    _add_output(c_new)
+    cap.add_parser("list", help="local capture sessions")
+    c_show = cap.add_parser("show", help="plan, current task and progress")
+    c_show.add_argument("session", nargs="?", help="session id (default: the session recording or being planned)")
+    _add_output(c_show)
+    c_plan = cap.add_parser("plan", help="edit the intent or plan (tasks that started keep their place)")
+    c_plan.add_argument("session")
+    c_plan.add_argument("--intent")
+    c_plan.add_argument("--add", metavar="TITLE")
+    c_plan.add_argument("--at", type=int, metavar="N", help="1-based position for --add (default: end)")
+    c_plan.add_argument("--edit", nargs=2, metavar=("TASK", "TITLE"))
+    c_plan.add_argument("--remove", metavar="TASK")
+    c_plan.add_argument("--move", nargs=2, metavar=("TASK", "N"))
+    _add_output(c_plan)
+    for name, text in (("complete", "complete the current task"), ("skip", "skip the current task"),
+                       ("stop", "stop recording (keeps the session, boundaries and events)")):
+        c_x = cap.add_parser(name, help=text)
+        c_x.add_argument("session", nargs="?")
+        if name != "stop":
+            c_x.add_argument("--task-id", help="refuse unless this is the current task")
+        _add_output(c_x)
+    c_add = cap.add_parser("add", help="add a task (while recording: right after the current one)")
+    c_add.add_argument("title")
+    c_add.add_argument("--session")
+    c_add.add_argument("--position", help="'next', 'end' or a 1-based number")
+    _add_output(c_add)
+    c_imp = cap.add_parser("import", help="import a stopped session into a package through record import")
+    c_imp.add_argument("session")
+    c_imp.add_argument("--package", required=True)
+    c_imp.add_argument("--workflow", help="default: the session's workflow")
+    c_imp.add_argument("--name", help="recording name (default: the session id)")
+    c_imp.add_argument("--keep-values", action="store_true", help="do not redact business values")
+    c_imp.add_argument("--force", action="store_true", help="replace an existing recording")
+    c_srv = cap.add_parser("serve", help="run the local capture API without the MCP server")
+    c_srv.add_argument("--port", type=int, default=8000)
+    cap.add_parser("extension", help="where the browser extension is, and whether it is built")
 
     meta = sub.add_parser("metadata", help="projection metadata snapshots").add_subparsers(
         dest="metadata_command", required=True)
@@ -660,6 +791,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_skills(args)
     if args.command == "connector":
         return cmd_connector(args)
+    if args.command == "capture":
+        return cmd_capture(args)
 
     if args.version:
         try:

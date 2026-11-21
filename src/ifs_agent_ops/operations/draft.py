@@ -18,8 +18,9 @@ from ifs_agent_ops.analysis.sequence import build_sequence
 from ifs_agent_ops.ifs.metadata.edmx import EdmxModel, Property, _strip_collection
 from ifs_agent_ops.operations.model import (
     Binding, Evidence, Header, Operation, Parameter, PathParameter, Placement, QueryOptions, Response, Step,
-    TypeRef, Workflow,
+    TypeRef, Workflow, PlanTaskRef, RecordingPlan,
 )
+from ifs_agent_ops.recordings.annotations import entry_tasks, load_plan
 from ifs_agent_ops.recordings.har import body_json, expand_batches, load_har
 from ifs_agent_ops.workspace.package import Package
 
@@ -338,7 +339,12 @@ def draft_package(package: Package, metadata: dict[str, EdmxModel]) -> Draft:
                 _merge_unique(draft.operations[call_op[to_key]].depends_on, [call_op[from_key]])
 
         wf_id = re.sub(r"[^A-Za-z0-9_.-]", "_", Path(rel).relative_to("recordings").with_suffix("").as_posix().replace("/", "."))
-        workflow = Workflow(id=wf_id, recording=rel)
+        plan = load_plan(rec_path)
+        task_of = entry_tasks(plan)
+        workflow = Workflow(id=wf_id, recording=rel, plan=RecordingPlan(
+            intent=plan.get("intent", ""), complete=bool(plan.get("complete")),
+            tasks=[PlanTaskRef(id=t["id"], title=t["title"], status=t["status"]) for t in plan.get("tasks", [])],
+        ) if plan else None)
         step_of: dict[tuple[int, int], int] = {}
         for idx in sorted(call_op):
             bindings = [Binding(to=ln.to_place, from_step=step_of[(ln.from_index, ln.from_part or 0)],
@@ -346,10 +352,11 @@ def draft_package(package: Package, metadata: dict[str, EdmxModel]) -> Draft:
                         for ln in links if (ln.to_index, ln.to_part or 0) == idx
                         and (ln.from_index, ln.from_part or 0) in step_of]
             prev = workflow.steps[-1] if workflow.steps else None
-            if prev and prev.operation == call_op[idx] and not bindings:
+            if prev and prev.operation == call_op[idx] and not bindings and prev.task == task_of.get(idx[0]):
                 step_of[idx] = prev.step  # collapse consecutive repeats of the same call
                 continue
-            workflow.steps.append(Step(step=len(workflow.steps) + 1, operation=call_op[idx], bindings=bindings))
+            workflow.steps.append(Step(step=len(workflow.steps) + 1, operation=call_op[idx],
+                                       task=task_of.get(idx[0]), bindings=bindings))
             step_of[idx] = workflow.steps[-1].step
         draft.workflows[wf_id] = workflow
     return draft
