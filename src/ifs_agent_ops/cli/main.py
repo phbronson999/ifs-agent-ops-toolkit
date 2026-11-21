@@ -253,6 +253,20 @@ def cmd_validation(args: argparse.Namespace) -> int:
     except (PackageError, KeyError, FindingError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    if args.validation_command == "report":
+        from ifs_agent_ops.operations.evidence import (
+            active_log,
+            build_evidence,
+            write_report,
+        )
+
+        ev = build_evidence(package, cap, active_log())
+        path = write_report(package, ev)
+        missing = sorted({c.ref for r in ev.requirements for c in r.calls.values() if not c.found})
+        print(f"{cap.id} revision {cap.revision}: {ev.counts_text()}.\nEvidence report (local, not committed): {path}")
+        if missing:
+            print(f"{len(missing)} cited call(s) are not in this machine's test log: {', '.join(missing)}")
+        return 0
     if args.json:
         print(json.dumps([{"requirement": r.number, "text": r.text, "status": r.status,
                            "latest": r.latest.model_dump() if r.latest else None,
@@ -860,6 +874,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     v_status.add_argument("capability")
     v_status.add_argument("--package", required=True)
     v_status.add_argument("--json", action="store_true")
+    v_report = val.add_parser("report", help="write the evidence report: findings with the logged calls behind them "
+                                             "(<package>/.ifs-agent-ops/review/, local)")
+    v_report.add_argument("capability")
+    v_report.add_argument("--package", required=True)
 
     args = parser.parse_args(argv)
     load_env()

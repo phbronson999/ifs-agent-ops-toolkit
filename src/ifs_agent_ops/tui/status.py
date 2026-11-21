@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ifs_agent_ops.generators.gating import GenerationRefused, gate_capability
 from ifs_agent_ops.operations.capability_store import load_capabilities
+from ifs_agent_ops.operations.findings import load_findings, requirement_status
 from ifs_agent_ops.operations.store import load_operations, load_workflows
 from ifs_agent_ops.recordings.annotations import load_plan
 from ifs_agent_ops.workspace.package import Package
@@ -97,6 +98,15 @@ class CapabilityState:
     operations: list[str]             # referenced operation ids
     unapproved_operations: list[str]  # referenced operations without a current technical approval
     open_questions: int
+    testing: Counter = field(default_factory=Counter)  # requirement status -> count (validation findings)
+
+    @property
+    def requirements(self) -> int:
+        return sum(self.testing.values())
+
+    def testing_text(self) -> str:
+        order = ("passed", "failed", "inconclusive", "not tested")
+        return ", ".join(f"{self.testing[s]} {s}" for s in order if self.testing[s]) or "no requirements"
 
 
 def _operation_current(op) -> bool:
@@ -118,7 +128,8 @@ def capabilities(package: Package) -> list[CapabilityState]:
             id=cap.id, title=cap.title, status=cap.status, revision=cap.revision, approval_current=current,
             reason=reason, operations=referenced,
             unapproved_operations=[o for o in referenced if o not in ops or not _operation_current(ops[o])],
-            open_questions=len(cap.review_notes)))
+            open_questions=len(cap.review_notes),
+            testing=Counter(r.status for r in requirement_status(cap, load_findings(package, cap.id)))))
     return out
 
 
@@ -166,6 +177,14 @@ def next_steps(view: Overview) -> list[str]:
         steps.append(f"{len(view.drifted)} approved operation(s) differ from the newer recordings (DRIFTED on the "
                      "Operations tab). Drafting never changes an approved operation, so the approved definitions "
                      "still apply; decide with Claude, while testing, whether the new evidence should change them.")
+    for cap in view.capabilities:
+        if cap.testing["failed"]:
+            steps.append(f"{cap.id}: {cap.testing['failed']} requirement(s) FAILED in testing. Work the findings "
+                         "into the capability with Claude and test again (Testing tab).")
+        elif cap.testing["not tested"] or cap.testing["inconclusive"]:
+            done = cap.testing["passed"]
+            steps.append(f"Test {cap.id} with Claude against IFS TEST: {done} of {cap.requirements} requirement(s) "
+                         "passed so far (Testing tab).")
     if not view.capabilities:
         steps.append("Write a capability (capabilities/<id>.yaml) with Claude's help, and test it against IFS TEST "
                      "before approving. It references operations and states where every value comes from.")

@@ -170,7 +170,13 @@ references of the calls that show it. Findings are saved in the package as
 
 ```powershell
 ifs-agent-ops validation status create-customer-order --package ifs-customer-orders
+ifs-agent-ops validation report create-customer-order --package ifs-customer-orders
 ```
+
+`validation report` writes the evidence report to `<package>/.ifs-agent-ops/review/<capability>.validation.md`:
+each requirement with its findings and the logged calls they cite. It quotes your local test log, so it isn't
+committed. The TUI's **Testing** tab (key 5) shows the same thing as a tree: requirement, then findings, then
+calls. Expand a call to see its request and response with their headers.
 
 Each requirement shows its latest finding, or "not tested". If a requirement's wording changes in a later
 revision, its earlier findings are marked outdated and stop counting. Findings are a report only: they never
