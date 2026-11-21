@@ -33,6 +33,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
 from ifs_agent_ops.recordings import multipart
+from ifs_agent_ops.recordings.har import decode_text_bodies
 
 PLACEHOLDER_IFS_HOST = "ifs.example"
 _IFS_PATH_RE = re.compile(r"/main/ifsapplications/|/auth/realms/", re.I)
@@ -98,6 +99,8 @@ def _replace_in_strings(obj: Any, fn) -> Any:
 
 def normalize_hosts(har: dict) -> tuple[dict, dict[str, str]]:
     """Return (HAR with hosts replaced, {real host: placeholder}). Input is not modified."""
+    har = json.loads(json.dumps(har))
+    decode_text_bodies(har)  # a host inside a base64 body would survive the replacement and the leak check
     mapping = host_map(har)
     if not mapping:
         return json.loads(json.dumps(har)), mapping
@@ -330,6 +333,7 @@ def _redact_body(r: ValueRedactor, text: Optional[str]) -> Optional[str]:
 
 def _apply(r: ValueRedactor, har: dict) -> dict:
     out = json.loads(json.dumps(har))
+    decode_text_bodies(out)  # base64 text bodies (e.g. $batch responses from the extension) hold values too
     log = out.get("log", {})
     for page in log.get("pages", []) or []:
         if isinstance(page.get("title"), str):

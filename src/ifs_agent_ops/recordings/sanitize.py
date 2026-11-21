@@ -26,7 +26,10 @@ import re
 from collections import Counter
 from typing import Any
 
+from ifs_agent_ops.recordings.har import decode_text_bodies
+
 REDACTED = "<redacted>"
+BINARY_REMOVED = "<binary body removed>"
 
 _CREDENTIAL_HEADERS = {"authorization", "proxy-authorization", "cookie", "set-cookie",
                        "x-xsrf-token", "x-csrf-token"}
@@ -161,7 +164,11 @@ class _Sanitizer:
         content = resp.get("content") or {}
         if isinstance(content.get("text"), str):
             if content.get("encoding") == "base64":
-                self.report["base64_body_not_inspected"] += 1
+                # Still base64 after decode_text_bodies: binary (images, files). It cannot be inspected for
+                # secrets or business values and is no evidence of IFS behaviour, so it is not kept.
+                del content["encoding"]
+                content["text"] = BINARY_REMOVED
+                self.report["binary_body_removed"] += 1
             else:
                 content["text"] = self.body(content["text"], content.get("mimeType"))
         if isinstance(resp.get("redirectURL"), str):
@@ -174,6 +181,7 @@ class _Sanitizer:
 def sanitize_har(har: dict) -> tuple[dict, dict[str, int]]:
     """Return (sanitized copy, counts of what was removed). The input is not modified."""
     out = copy.deepcopy(har)
+    decode_text_bodies(out)  # base64 text bodies are inspected like any other; binary ones are reported below
     s = _Sanitizer()
     for page in out.get("log", {}).get("pages", []) or []:
         if isinstance(page.get("title"), str):
