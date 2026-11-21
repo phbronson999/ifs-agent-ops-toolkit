@@ -42,6 +42,7 @@ class ApiResponse:
     error: Optional[str] = None
     message: Optional[str] = None
     details: Optional[Any] = None
+    headers: dict | None = None  # response headers, for the test log (not part of the tool output)
 
 
 async def call_api(
@@ -58,9 +59,9 @@ async def call_api(
         resp = await client.request(method, endpoint, body=body, headers=headers, session_id=session_id)
     except AuthenticationRequired as err:
         return ApiResponse(success=False, status=err.status, error="authentication_required",
-                           message=auth_message(err))
+                           message=auth_message(err), headers=err.headers)
     except IfsApiError as err:
         return ApiResponse(success=False, status=err.status, error="API call failed",
                            message=str(err.detail),
-                           details=err.detail if isinstance(err.detail, dict) else None)
-    return ApiResponse(success=True, status=resp.status, data=resp.data)
+                           details=err.detail if isinstance(err.detail, dict) else None, headers=err.headers)
+    return ApiResponse(success=True, status=resp.status, data=resp.data, headers=resp.headers)

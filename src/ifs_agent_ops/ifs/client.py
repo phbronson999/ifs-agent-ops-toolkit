@@ -6,7 +6,7 @@ otherwise. Transport failures (``httpx.TransportError``) propagate unchanged.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Optional
 
 import httpx
@@ -25,6 +25,7 @@ class IfsResponse:
     status: int
     data: Any  # parsed JSON, or the response text when it is not JSON
     text: str
+    headers: dict[str, str] = field(default_factory=dict)  # response headers (ETag, IFS warnings, ...)
 
 
 class IfsClient:
@@ -87,20 +88,21 @@ class IfsClient:
             json=body if body else None,
         )
 
+        resp_headers = dict(resp.headers)
         if resp.status_code in (401, 403):
-            raise AuthenticationRequired("unauthorized", status=resp.status_code)
+            raise AuthenticationRequired("unauthorized", status=resp.status_code, headers=resp_headers)
         if not resp.is_success:
             try:
                 detail = resp.json()
             except Exception:
                 detail = resp.text
-            raise IfsApiError(resp.status_code, detail, resp.text)
+            raise IfsApiError(resp.status_code, detail, resp.text, headers=resp_headers)
 
         try:
             data = resp.json()
         except Exception:
             data = resp.text
-        return IfsResponse(status=resp.status_code, data=data, text=resp.text)
+        return IfsResponse(status=resp.status_code, data=data, text=resp.text, headers=resp_headers)
 
     async def get_text(self, endpoint: str, *, accept: str, session_id: Optional[str] = None) -> str:
         resp = await self.request("GET", endpoint, headers={"Accept": accept}, session_id=session_id)

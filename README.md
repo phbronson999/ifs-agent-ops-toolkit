@@ -146,6 +146,21 @@ ifs-agent-ops capture import <session> --package ifs-customer-orders
 
 Or tell Claude your intent: the MCP server (`capture_*` tools) proposes and tracks the plan.
 
+### Test log
+
+When Claude tests against IFS through the MCP server, every `call_protected_api` call is logged locally: the
+request, the response and its headers (ETag, IFS warnings), the status and the time it took. Each tool result
+carries a `test_log_ref` (for example `20261121-0007`) so findings can point at the exact call.
+
+```powershell
+ifs-agent-ops testlog list               # the latest day's calls (--day 2026-11-21, --all, --json)
+ifs-agent-ops testlog show 20261121-0007 # one call in full
+```
+
+The log is kept per profile in `~/.ifs-agent-ops/profiles/<profile>/test-log/`, one file per day. It holds real
+business data and the IFS host, so it stays on your machine and never goes into a package. Tokens and cookies
+are never written. Set `IFS_AGENT_OPS_TEST_LOG=off` to turn it off.
+
 ## Reviewing and approving
 
 A recording becomes usable in three reviews. The first is a look at the evidence. The other two are the

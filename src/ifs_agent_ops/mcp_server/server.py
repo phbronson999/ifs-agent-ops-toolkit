@@ -107,7 +107,7 @@ async def call_protected_api(
 ) -> str:
     """Call a protected IFS Cloud API endpoint using an authenticated session. IFS Cloud projection names, endpoint paths, key fields, and OData filter syntax are non-standard and vary per customer configuration. Guessing them will produce 404 errors or silently return wrong data. You MUST call get_api_guide first to get the correct endpoint and query pattern for the workflow — do not skip this step even if you think you know the endpoint. Do NOT call $metadata, probe unknown paths, or construct endpoints from scratch. If get_api_guide returns no matching guide, stop and tell the user: 'I don't have a skill for that workflow yet. Please perform this action in IFS Cloud in your browser, then export a HAR file from DevTools (Network tab → right-click → Save all as HAR with content) and use the build_ifs_skill_guide prompt to create a skill for it.' If the response contains error 'authentication_required', immediately call start_oauth — do not relay the error to the user or ask them to authenticate manually. If no session_id is provided, uses the most recent saved session. Use headers to pass If-Match (ETag) for PATCH/DELETE/bound actions."""
     from ifs_agent_ops.mcp_server.tools.api.call_protected_api import handler
-    return await handler(endpoint, method, session_id, body, headers, rt().client)
+    return await handler(endpoint, method, session_id, body, headers, rt().client, rt().test_log)
 
 
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
