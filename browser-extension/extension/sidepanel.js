@@ -24,6 +24,8 @@ const state = {
   capture: null,    // { tabId, core, origin } while this panel is capturing
   queue: Promise.resolve(),
   drafts: {},       // text typed into inputs survives the periodic re-render
+  savedUntil: {},   // "Saved ✓" confirmations, by input key: shown until this timestamp
+  dragging: null,   // { id, from } while a task is dragged to a new place
 };
 
 // ── toolkit API ─────────────────────────────────────────────────────────────
@@ -219,16 +221,34 @@ async function guard(fn) {
 }
 
 function render() {
+  if (state.dragging) return; // re-rendered on dragend
   $("connection").textContent = state.online ? `toolkit connected (${state.api})`
     : `toolkit not reachable at ${state.api}: start ifs-agent-ops-mcp or ifs-agent-ops capture serve`;
   const app = $("app");
-  const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.key : null;
+  // The periodic refresh rebuilds the form: keep focus, cursor position, selection and scroll where the user left them.
+  const active = document.activeElement;
+  const focused = active && active.dataset ? active.dataset.key : null;
+  const caret = focused && typeof active.selectionStart === "number"
+    ? { start: active.selectionStart, end: active.selectionEnd, dir: active.selectionDirection, top: active.scrollTop } : null;
   app.replaceChildren(state.session ? sessionView(state.session) : pickerView());
   if (focused) {
     const again = app.querySelector(`[data-key="${focused}"]`);
-    if (again) { again.focus(); if (again.value !== undefined && again.setSelectionRange) {
-      try { again.setSelectionRange(again.value.length, again.value.length); } catch (_) { /* select */ } } }
+    if (again) {
+      again.focus();
+      if (caret && again.setSelectionRange) {
+        try { again.setSelectionRange(caret.start, caret.end, caret.dir); again.scrollTop = caret.top; } catch (_) { /* no selection API */ }
+      }
+    }
   }
+}
+
+// One pill per session state: planning (blue), recording (red), stopped (green when the plan is complete, amber when not).
+function statusBadge(s, withCount = false) {
+  const p = s.progress;
+  const [cls, label] = s.status === "recording" ? ["recording", "● recording"]
+    : s.status === "planning" ? ["planning", "planning"]
+    : p.plan_complete ? ["complete", "plan complete"] : ["incomplete", "plan incomplete"];
+  return el("span", { class: `badge ${cls}` }, withCount ? `${label} ${p.done}/${p.total}` : label);
 }
 
 function pickerView() {
@@ -238,18 +258,20 @@ function pickerView() {
     state.selected = s.id;
     state.session = await api("GET", `/sessions/${s.id}`);
     render();
-  } }, `${s.intent} `, el("span", { class: "badge" }, `${s.status} ${s.progress.done}/${s.progress.total}`));
+  } }, `${s.intent} `, statusBadge(s, true));
   const intent = el("textarea", { rows: 2, draft: "new-intent", "data-key": "new-intent",
     placeholder: "I want to teach the builder how to create a customer order" });
   const workflow = el("input", { draft: "new-workflow", "data-key": "new-workflow",
     placeholder: "workflow folder, e.g. create-customer-order" });
   const tasks = el("textarea", { rows: 4, draft: "new-tasks", "data-key": "new-tasks", placeholder: "One task per line, in order:\nCreate order header\nAdd order line\nAdd charge\nFinish order" });
   return el("div", {},
+    open.length ? el("h2", {}, "Open sessions") : null,
+    el("div", { class: "sessions" }, open.map(pick)),
     el("h2", {}, "New recording"),
     el("label", {}, "Intent", intent),
     el("label", {}, "Recording plan", tasks),
     el("label", {}, "Workflow (optional)", workflow),
-    el("div", { class: "row" }, el("button", { class: "primary", disabled: !state.online, onclick: async () => {
+    el("div", { class: "row" }, el("button", { class: "primary wide", disabled: !state.online, onclick: async () => {
       const titles = tasks.value.split("\n").map((t) => t.trim()).filter(Boolean);
       const s = await api("POST", "/sessions", { intent: intent.value, tasks: titles, workflow: workflow.value });
       ["new-intent", "new-workflow", "new-tasks"].forEach(takeDraft);
@@ -259,8 +281,6 @@ function pickerView() {
       render();
     } }, "Create plan")),
     el("p", { class: "muted" }, "Or ask Claude: \"I want to teach the builder how to ...\". The plan it creates appears here."),
-    open.length ? el("h2", {}, "Open sessions") : null,
-    el("div", { class: "sessions" }, open.map(pick)),
     done.length ? el("h2", {}, "Recently stopped") : null,
     el("div", { class: "sessions" }, done.map(pick)));
 }
@@ -269,47 +289,70 @@ function sessionView(s) {
   const p = s.progress;
   const recording = s.status === "recording";
   const planning = s.status === "planning";
-  const badge = recording ? el("span", { class: "badge recording" }, "● recording")
-    : planning ? el("span", { class: "badge" }, "planning")
-    : el("span", { class: "badge " + (p.plan_complete ? "complete" : "incomplete") },
-         p.plan_complete ? "plan complete" : "plan incomplete");
+  const badge = statusBadge(s);
   const counts = (s.requests || {}).by_task || {};
 
   const intentKey = `intent-${s.id}`;
   const intentBox = el("textarea", { rows: 2, draft: intentKey, "data-key": intentKey });
   if (state.drafts[intentKey] === undefined) intentBox.value = s.intent;
+  // Enabled only while the text differs from the saved intent; shows "Saved ✓" briefly after a save.
+  const unsaved = () => intentBox.value.trim() !== s.intent.trim();
+  const justSaved = () => Date.now() < (state.savedUntil[intentKey] || 0);
+  const saveIntent = el("button", { class: "small", onclick: async () => {
+    state.session = await api("POST", `/sessions/${s.id}/intent`, { intent: intentBox.value });
+    takeDraft(intentKey);
+    state.savedUntil[intentKey] = Date.now() + 2500;
+    render();
+  } });
+  const showSaveState = () => {
+    const saved = !unsaved() && justSaved();
+    saveIntent.disabled = !unsaved();
+    saveIntent.classList.toggle("saved", saved);
+    saveIntent.textContent = saved ? "Saved ✓" : "Save intent";
+  };
+  showSaveState();
+  intentBox.addEventListener("input", showSaveState);
   const header = el("div", { class: "card" },
     el("div", { class: "row" }, el("button", { class: "small", onclick: () => {
       state.selected = null; state.session = null; render();
     } }, "← sessions"), badge),
     planning || recording
-      ? el("div", {}, intentBox, el("div", { class: "row" }, el("button", { class: "small", onclick: async () => {
-          state.session = await api("POST", `/sessions/${s.id}/intent`, { intent: intentBox.value });
-          takeDraft(intentKey);
-          render();
-        } }, "Save intent")))
+      ? el("div", {}, intentBox, el("div", { class: "row" }, saveIntent))
       : el("div", { class: "intent" }, s.intent),
     el("div", { class: "muted" }, `${s.id}${s.workflow ? " · " + s.workflow : ""}`),
     el("progress", { max: Math.max(p.total, 1), value: p.done }),
     el("div", { class: "muted" }, `${p.done} of ${p.total} tasks done` +
        (s.requests ? ` · ${s.requests.total} IFS requests` : "")));
 
-  const list = el("ol", { class: "tasks" }, s.tasks.map((t, i) => el("li", { class: t.status },
-    el("span", { class: "mark" }, MARKS[t.status]),
-    el("span", { class: "title" }, `${i + 1}. ${t.title}`,
-       t.added_during_recording ? el("span", { class: "muted" }, " (added while recording)") : null),
-    !planning ? el("span", { class: "count" }, `${counts[t.id] || 0} req`) : null,
-    t.status === "pending" && (planning || recording) ? [
-      el("button", { class: "small", title: "Move up", onclick: () => move(t, i) }, "↑"),
-      el("button", { class: "small", title: "Move down", onclick: () => move(t, i + 2) }, "↓"),
-      el("button", { class: "small", title: "Rename", onclick: async () => {
-        const title = prompt("Task title", t.title);
-        if (title) { state.session = await api("PATCH", `/sessions/${s.id}/tasks/${t.id}`, { title }); render(); }
-      } }, "✎"),
-      el("button", { class: "small", title: "Remove", onclick: async () => {
-        state.session = await api("DELETE", `/sessions/${s.id}/tasks/${t.id}`); render();
-      } }, "✕"),
-    ] : null)));
+  const editable = planning || recording;
+  const list = el("ol", { class: "tasks" }, s.tasks.map((t, i) => {
+    const movable = editable && t.status === "pending";
+    const optionalTag = editable
+      ? el("button", { class: "tag" + (t.optional ? " on" : ""), "data-key": `optional-${t.id}`,
+          title: t.optional ? "Optional step: click to make it required" : "Mark this step optional",
+          onclick: async () => {
+            state.session = await api("PATCH", `/sessions/${s.id}/tasks/${t.id}`, { optional: !t.optional });
+            render();
+          } }, "optional")
+      : t.optional ? el("span", { class: "tag on" }, "optional") : null;
+    const row = el("li", { class: `${t.status}${t.optional ? " optional" : ""}`, "data-task": t.id },
+      movable ? dragHandle(t, i) : el("span", { class: "handle-space" }),
+      el("span", { class: "mark" }, MARKS[t.status]),
+      el("span", { class: "title" }, `${i + 1}. ${t.title}`,
+         t.added_during_recording ? el("span", { class: "muted" }, " (added while recording)") : null, optionalTag),
+      !planning ? el("span", { class: "count" }, `${counts[t.id] || 0} req`) : null,
+      movable ? [
+        el("button", { class: "small", title: "Rename", onclick: async () => {
+          const title = prompt("Task title", t.title);
+          if (title) { state.session = await api("PATCH", `/sessions/${s.id}/tasks/${t.id}`, { title }); render(); }
+        } }, "✎"),
+        el("button", { class: "small", title: "Remove", onclick: async () => {
+          state.session = await api("DELETE", `/sessions/${s.id}/tasks/${t.id}`); render();
+        } }, "✕"),
+      ] : null);
+    if (movable) dropTarget(row, s.tasks, i);
+    return row;
+  }));
 
   const newTask = el("input", { draft: `task-${s.id}`, "data-key": `task-${s.id}`, placeholder: recording ? "Another business action to demonstrate" : "Add a task" });
   const where = el("select", {}, el("option", { value: "next" }, "after current"), el("option", { value: "end" }, "at end"));
@@ -324,7 +367,7 @@ function sessionView(s) {
 
   const controls = [];
   if (planning) {
-    controls.push(el("div", { class: "row" }, el("button", { class: "primary", disabled: !s.tasks.length || !state.online,
+    controls.push(el("div", { class: "row" }, el("button", { class: "primary wide", disabled: !s.tasks.length || !state.online,
       onclick: startRecording }, "Start recording")),
       el("p", { class: "muted" }, "Open the IFS web client in the active tab of this window first."));
   } else if (recording) {
@@ -333,17 +376,17 @@ function sessionView(s) {
       el("div", { class: "muted" }, cur ? "Current task" : "Every planned task is done"),
       el("div", { class: "current" }, cur ? cur.title : "Add another task or stop the recording."),
       el("div", { class: "row" },
-        el("button", { class: "primary", disabled: !cur, onclick: () => command("complete", { task_id: cur.id }) },
+        el("button", { class: "primary wide", disabled: !cur, onclick: () => command("complete", { task_id: cur.id }) },
            "Complete task"),
-        el("button", { disabled: !cur, onclick: () => command("skip", { task_id: cur.id }) }, "Skip task"),
-        el("button", { class: "danger", onclick: stopRecording }, "Stop recording")),
+        el("button", { class: "wide", disabled: !cur, onclick: () => command("skip", { task_id: cur.id }) }, "Skip task"),
+        el("button", { class: "danger wide", onclick: stopRecording }, "Stop recording")),
       state.capture ? el("div", { class: "muted" }, `capturing ${state.capture.origin}`)
         : el("div", { class: "row" }, el("span", { class: "muted" }, "Not capturing in this panel."),
              el("button", { onclick: resumeCapture }, "Resume capture"))));
   } else {
     controls.push(el("div", { class: "card" },
-      el("div", {}, p.plan_complete ? "Every task was completed or skipped."
-        : "Not every task was completed: the recording is kept and marked incomplete."),
+      el("div", {}, p.plan_complete ? "Every required task was completed or skipped."
+        : "Not every required task was completed: the recording is kept and marked incomplete."),
       el("div", { class: "muted" }, s.next_step)));
   }
   return el("div", {}, header, controls, el("h2", {}, "Recording plan"), list, addRow);
@@ -352,6 +395,63 @@ function sessionView(s) {
 async function move(task, position) {
   state.session = await api("POST", `/sessions/${state.selected}/tasks/${task.id}/move`, { position });
   render();
+}
+
+// ── drag to reorder ─────────────────────────────────────────────────────────
+// Only pending tasks move (the toolkit keeps started tasks in place). The row becomes draggable only while
+// the handle is pressed, so text and buttons in the row behave normally. The periodic re-render is paused
+// during a drag (it would replace the row being dragged). The handle also takes ↑/↓ from the keyboard.
+
+function dragHandle(task, index) {
+  const handle = el("button", { class: "handle", title: "Drag to reorder (or focus and press ↑/↓)",
+    "aria-label": `Move ${task.title}`, "data-key": `handle-${task.id}` }, "⠿");
+  const row = () => handle.closest("li");
+  handle.addEventListener("pointerdown", () => { row().draggable = true; });
+  handle.addEventListener("pointerup", () => { row().draggable = false; });
+  handle.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowUp" && index > 0) { e.preventDefault(); guard(() => move(task, index)); }
+    if (e.key === "ArrowDown") { e.preventDefault(); guard(() => move(task, index + 2)); }
+  });
+  return handle;
+}
+
+function clearDropMarks() {
+  document.querySelectorAll("li.drop-before, li.drop-after, li.dragging")
+    .forEach((li) => li.classList.remove("drop-before", "drop-after", "dragging"));
+}
+
+function dropTarget(row, tasks, index) {
+  const after = (e) => { const r = row.getBoundingClientRect(); return e.clientY > r.top + r.height / 2; };
+  row.addEventListener("dragstart", (e) => {
+    state.dragging = { id: tasks[index].id, from: index };
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", tasks[index].id);
+    row.classList.add("dragging");
+  });
+  row.addEventListener("dragend", () => {
+    row.draggable = false;
+    state.dragging = null;
+    clearDropMarks();
+    render();
+  });
+  row.addEventListener("dragover", (e) => {
+    if (!state.dragging) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const below = after(e);
+    row.classList.toggle("drop-after", below);
+    row.classList.toggle("drop-before", !below);
+  });
+  row.addEventListener("dragleave", () => row.classList.remove("drop-before", "drop-after"));
+  row.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const drag = state.dragging;
+    if (!drag) return;
+    let to = after(e) ? index + 1 : index;   // insertion index in the current list
+    if (to > drag.from) to -= 1;             // ... after the dragged task is taken out
+    clearDropMarks();
+    if (to !== drag.from) guard(() => move(tasks[drag.from], to + 1));
+  });
 }
 
 // ── boot ────────────────────────────────────────────────────────────────────

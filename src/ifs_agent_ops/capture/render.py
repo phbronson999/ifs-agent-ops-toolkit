@@ -20,7 +20,8 @@ def render(view: dict) -> str:
     lines.append("")
     by_task = (view.get("requests") or {}).get("by_task", {})
     for n, t in enumerate(view["tasks"], 1):
-        extra = [t["status"]] + (["added during recording"] if t["added_during_recording"] else [])
+        extra = ([t["status"]] + (["optional"] if t.get("optional") else [])
+                 + (["added during recording"] if t["added_during_recording"] else []))
         if view["status"] != "planning":
             extra.append(f"{by_task.get(t['id'], 0)} requests")
         lines.append(f"{MARKS[t['status']]} {n}. {t['title']}  ({t['id']}; {', '.join(extra)})")

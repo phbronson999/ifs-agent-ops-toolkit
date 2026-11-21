@@ -227,15 +227,17 @@ _LOCAL_READ = mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False
 
 
 @mcp.tool(annotations=_LOCAL_WRITE)
-async def capture_create_session(intent: str, tasks: list[str], workflow: str = "", package: str = "") -> str:
-    """Start teaching the builder a capability: create a guided-capture session from the user's intent (e.g. 'I want to teach the builder how to create a customer order') and an ordered recording plan of business tasks the user will demonstrate in the IFS web UI (e.g. ['Create order header', 'Add order line', 'Add charge', 'Finish order']). This is the normal beginning of capability development; prefer it to asking for a DevTools HAR export. Agree the plan with the user BEFORE calling this: propose the tasks from the intent and let the user change, add, remove or reorder them. workflow is the package recordings folder (e.g. 'create-customer-order'); package is optional. Nothing is recorded yet: the user starts recording from the IFS Agent Ops browser extension's side panel. Sessions are local (toolkit home) and never committed."""
-    return await _capture.create_session(intent, tasks, workflow, package)
+async def capture_create_session(intent: str, tasks: list[str], workflow: str = "", package: str = "",
+                                 optional_tasks: Optional[list[str]] = None) -> str:
+    """Start teaching the builder a capability: create a guided-capture session from the user's intent (e.g. 'I want to teach the builder how to create a customer order') and an ordered recording plan of business tasks the user will demonstrate in the IFS web UI (e.g. ['Create order header', 'Add order line', 'Add charge', 'Finish order']). This is the normal beginning of capability development; prefer it to asking for a DevTools HAR export. Agree the plan with the user BEFORE calling this: propose the tasks from the intent and let the user change, add, remove or reorder them. optional_tasks lists the titles of tasks the user says the business action can do without (e.g. ['Add charge']); optional tasks never make the plan incomplete. workflow is the package recordings folder (e.g. 'create-customer-order'); package is optional. Nothing is recorded yet: the user starts recording from the IFS Agent Ops browser extension's side panel. Sessions are local (toolkit home) and never committed."""
+    return await _capture.create_session(intent, tasks, workflow, package, optional_tasks)
 
 
 @mcp.tool(annotations=_LOCAL_WRITE)
-async def capture_set_plan(session_id: str, tasks: list[str], intent: str = "") -> str:
-    """Replace the ordered recording plan of a session that has not started recording (tasks keep their ids when the title is unchanged), optionally changing the intent. Use it when the user edits or reorders the plan before recording. While recording, use capture_add_task or capture_skip_task instead."""
-    return await _capture.set_plan(session_id, tasks, intent)
+async def capture_set_plan(session_id: str, tasks: list[str], intent: str = "",
+                           optional_tasks: Optional[list[str]] = None) -> str:
+    """Replace the ordered recording plan of a session that has not started recording (tasks keep their ids when the title is unchanged), optionally changing the intent. Use it when the user edits or reorders the plan before recording. optional_tasks, when given, is the complete list of task titles to mark optional (the rest become required); omit it to keep each task's current optional flag. While recording, use capture_add_task or capture_skip_task instead."""
+    return await _capture.set_plan(session_id, tasks, intent, optional_tasks)
 
 
 @mcp.tool(annotations=_LOCAL_READ)
@@ -263,9 +265,10 @@ async def capture_skip_task(session_id: str = "", task_id: str = "") -> str:
 
 
 @mcp.tool(annotations=_LOCAL_WRITE)
-async def capture_add_task(title: str, session_id: str = "", description: str = "", position: str = "") -> str:
-    """Add a task to the recording plan, also during recording when the user realises another business action needs to be demonstrated. While recording it goes right after the current task by default; position may be 'end' or a 1-based number. Tasks added during recording are marked as such."""
-    return await _capture.add_task(title, session_id, description, position)
+async def capture_add_task(title: str, session_id: str = "", description: str = "", position: str = "",
+                           optional: bool = False) -> str:
+    """Add a task to the recording plan, also during recording when the user realises another business action needs to be demonstrated. While recording it goes right after the current task by default; position may be 'end' or a 1-based number. Set optional when the business action can be done without this step. Tasks added during recording are marked as such."""
+    return await _capture.add_task(title, session_id, description, position, optional)
 
 
 @mcp.tool(annotations=_LOCAL_WRITE)

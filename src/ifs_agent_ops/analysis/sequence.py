@@ -156,12 +156,13 @@ def build_sequence(calls: list[ObservedCall]) -> tuple[list[CallView], list[Data
 
 
 def _plan_lines(plan: dict) -> list[str]:
-    state = "complete" if plan.get("complete") else "INCOMPLETE (not every task was completed or skipped)"
+    state = "complete" if plan.get("complete") else "INCOMPLETE (not every required task was completed or skipped)"
     lines = ["### Recording plan", "", f"Intent: {plan.get('intent', '')}", f"Plan: {state}", ""]
     for n, t in enumerate(plan.get("tasks", []), 1):
-        added = ", added during recording" if t.get("added_during_recording") else ""
+        notes = (", optional" if t.get("optional") else "") + \
+                (", added during recording" if t.get("added_during_recording") else "")
         span = f"calls #{t['entries'][0]}-#{t['entries'][1]}" if t.get("entries") else "no calls"
-        lines.append(f"{n}. [{t['id']}] {t['title']} - {t['status']}{added}; {span}")
+        lines.append(f"{n}. [{t['id']}] {t['title']} - {t['status']}{notes}; {span}")
     if plan.get("unassigned_entries"):
         lines.append("Outside any task: " + ", ".join(f"#{a}-#{b}" for a, b in plan["unassigned_entries"]))
     return lines + [""]

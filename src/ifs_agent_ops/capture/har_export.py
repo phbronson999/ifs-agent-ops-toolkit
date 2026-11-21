@@ -92,7 +92,7 @@ def plan_annotation(session: CaptureSession, owners: list[Optional[str]]) -> dic
     for t in session.tasks:
         idx = [i for i, o in enumerate(owners) if o == t.id]
         tasks.append({"id": t.id, "title": t.title, **({"description": t.description} if t.description else {}),
-                      "status": t.status, "added_during_recording": t.added_during_recording,
+                      "status": t.status, "optional": t.optional, "added_during_recording": t.added_during_recording,
                       "entries": [idx[0], idx[-1]] if idx else None, "calls": len(idx)})
     unassigned = [i for i, o in enumerate(owners) if o is None]
     return {"session": session.id, "intent": session.intent, "complete": session.plan_complete,

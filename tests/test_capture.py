@@ -104,6 +104,51 @@ def test_adding_a_task_after_the_plan_is_done_makes_it_current():
     assert s.current().title == "one more" and s.current().started_at == 3.0 and not s.plan_complete
 
 
+def test_optional_tasks_never_make_the_plan_incomplete():
+    s = new_session("Teach order creation", ["Header", "Add charge", "Lines"], optional=["Add charge"])
+    assert [t.optional for t in s.tasks] == [False, True, False]
+    with pytest.raises(CaptureError, match="not in the plan"):
+        new_session("x", ["a"], optional=["b"])
+    s.start(ORIGIN, ts=1.0)
+    s.complete_current(ts=2.0)
+    s.edit_task("t3", optional=True)                         # pending: can become optional
+    s.edit_task("t1", optional=True)                         # finished: the flag may change ...
+    with pytest.raises(CaptureError, match="keep their title"):
+        s.edit_task("t1", title="Renamed", optional=False)   # ... the title may not, and a refused edit changes nothing
+    assert s.task("t1").optional and s.task("t1").title == "Header"
+    s.edit_task("t1", optional=False)
+    s.edit_task("t3", optional=False)
+    s.stop(ts=3.0)                                           # optional "Add charge" was current: cut off
+    assert [t.status for t in s.tasks] == ["complete", "incomplete", "pending"] and not s.plan_complete
+    done = new_session("x", ["Header", "Add charge"], optional=["Add charge"])
+    done.start(ORIGIN, ts=1.0)
+    done.complete_current(ts=2.0)
+    done.stop(ts=3.0)                                        # stopped during the optional step
+    assert done.task("t2").status == "incomplete" and done.plan_complete
+
+
+def test_optional_flag_through_the_api_set_plan_and_export(store):
+    client = TestClient(api.app())
+    sid = client.post(f"{api.PREFIX}/sessions", headers=EXT, json={
+        "intent": "x", "tasks": ["Header", "Charge"], "optional": ["Charge"]}).json()["id"]
+    added = client.post(f"{api.PREFIX}/sessions/{sid}/tasks", headers=EXT, json={"title": "Note", "optional": True}).json()
+    assert [t["optional"] for t in added["tasks"]] == [False, True, True]
+    patched = client.patch(f"{api.PREFIX}/sessions/{sid}/tasks/t3", headers=EXT, json={"optional": False}).json()
+    assert patched["tasks"][2]["optional"] is False
+    kept = service.apply(store, sid, "set_plan", tasks=["Charge", "Header", "New"])           # None: flags kept
+    assert [(t["title"], t["optional"]) for t in kept["tasks"]] == [("Charge", True), ("Header", False), ("New", False)]
+    reset = service.apply(store, sid, "set_plan", tasks=["Charge", "Header"], optional=["Header"])  # authoritative
+    assert [t["optional"] for t in reset["tasks"]] == [False, True]
+    with pytest.raises(CaptureError, match="not in the plan"):
+        service.apply(store, sid, "set_plan", tasks=["Charge"], optional=["Nope"])
+    service.apply(store, sid, "start", ifs_origin=ORIGIN, ts=1.0)
+    service.apply(store, sid, "complete", ts=2.0)
+    service.apply(store, sid, "stop", ts=3.0)
+    _, plan = export(store.load(sid), store.events(sid))
+    assert [(t["title"], t["optional"]) for t in plan["tasks"]] == [("Charge", False), ("Header", True)]
+    assert plan["complete"] is True
+
+
 def test_events_are_stored_locally_without_credentials_and_attributed_by_send_time(store):
     sid = demonstrate(store)
     events = store.events(sid)

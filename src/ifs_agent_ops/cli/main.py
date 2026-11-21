@@ -584,7 +584,7 @@ def cmd_capture(args: argparse.Namespace) -> int:
                 print(f"warning: {w}")
             return 0
         if c == "new":
-            data = service.create(store, args.intent, args.task or [], args.workflow, args.package)
+            data = service.create(store, args.intent, args.task or [], args.workflow, args.package, args.optional)
         elif c == "show":
             data = service.view(store, store.load(service.resolve(store, args.session)))
         elif c == "plan":
@@ -600,9 +600,13 @@ def cmd_capture(args: argparse.Namespace) -> int:
                 data = service.apply(store, sid, "remove", task_id=args.remove)
             if args.move:
                 data = service.apply(store, sid, "move", task_id=args.move[0], position=int(args.move[1]))
+            for task_id in args.optional or []:
+                data = service.apply(store, sid, "edit", task_id=task_id, optional=True)
+            for task_id in args.required or []:
+                data = service.apply(store, sid, "edit", task_id=task_id, optional=False)
         elif c == "add":
             pos = int(args.position) if args.position and args.position.isdigit() else args.position
-            data = service.apply(store, args.session, "add", title=args.title, position=pos)
+            data = service.apply(store, args.session, "add", title=args.title, position=pos, optional=args.optional)
         else:  # complete | skip | stop
             data = service.apply(store, args.session, c, task_id=getattr(args, "task_id", None))
     except CaptureError as exc:
@@ -666,6 +670,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     c_new = cap.add_parser("new", help="create a session from an intent and an ordered recording plan")
     c_new.add_argument("intent", help='e.g. "I want to teach the builder how to create a customer order"')
     c_new.add_argument("--task", action="append", help="plan task, in order (repeatable)")
+    c_new.add_argument("--optional", action="append", metavar="TITLE",
+                       help="mark the --task with this title optional (repeatable)")
     c_new.add_argument("--workflow", help="package recordings folder, e.g. create-customer-order")
     c_new.add_argument("--package", help="target package (optional)")
     _add_output(c_new)
@@ -681,6 +687,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     c_plan.add_argument("--edit", nargs=2, metavar=("TASK", "TITLE"))
     c_plan.add_argument("--remove", metavar="TASK")
     c_plan.add_argument("--move", nargs=2, metavar=("TASK", "N"))
+    c_plan.add_argument("--optional", action="append", metavar="TASK", help="mark a task optional (repeatable)")
+    c_plan.add_argument("--required", action="append", metavar="TASK", help="mark a task required (repeatable)")
     _add_output(c_plan)
     for name, text in (("complete", "complete the current task"), ("skip", "skip the current task"),
                        ("stop", "stop recording (keeps the session, boundaries and events)")):
@@ -693,6 +701,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     c_add.add_argument("title")
     c_add.add_argument("--session")
     c_add.add_argument("--position", help="'next', 'end' or a 1-based number")
+    c_add.add_argument("--optional", action="store_true", help="the business action can be done without this task")
     _add_output(c_add)
     c_imp = cap.add_parser("import", help="import a stopped session into a package through record import")
     c_imp.add_argument("session")
