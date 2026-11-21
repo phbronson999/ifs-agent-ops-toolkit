@@ -194,7 +194,7 @@ def test_cli_approval_requires_a_human(drafted, monkeypatch, capsys):
     assert cli.main(argv) == 1 and "code did not match" in capsys.readouterr().err
     assert load_capabilities(drafted)["create-order"].status == "draft"
 
-    answers = iter(["abc123", "create-order", "Pat Reviewer"])
+    answers = iter(["abc123"])
     monkeypatch.setattr(cli, "_ask", lambda p: next(answers))
     assert cli.main(argv) == 0
     approved = load_capabilities(drafted)["create-order"]

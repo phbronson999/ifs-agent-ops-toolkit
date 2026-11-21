@@ -2,7 +2,8 @@
 
 Screens: package picker -> package (tabs: Overview, Recordings, Operations, Capabilities, Generate).
 Approvals use the same rules as the CLI (``operations.approval``, ``approve_capability``) and the same
-human confirmation: a one-time code shown only on screen, the id typed back, and the reviewer's name.
+human confirmation: a one-time code shown only on screen and typed back; the reviewer's name is taken
+from git (``user.name``) or the OS login.
 """
 from __future__ import annotations
 
@@ -35,6 +36,7 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 
+from ifs_agent_ops.operations.approval import reviewer_name
 from ifs_agent_ops.tui import status as st
 from ifs_agent_ops.workspace.package import Package
 
@@ -165,14 +167,13 @@ class ConfirmDialog(ModalScreen[bool]):
 
 
 class ApprovalDialog(ModalScreen[str | None]):
-    """The human approval gate: the one-time code shown here, the id (or phrase) typed back, and a name.
-    Returns the reviewer's name, or None when cancelled."""
+    """The human approval gate: the one-time code shown here and typed back (Enter approves).
+    Returns the reviewer's name (git user.name, else the OS login), or None when cancelled."""
     BINDINGS: ClassVar[list[Binding]] = [Binding("escape", "cancel", "Cancel")]
 
-    def __init__(self, title: str, meaning: str, details: str | Text, target: str, target_label: str) -> None:
+    def __init__(self, title: str, meaning: str, details: str | Text, reviewer: str) -> None:
         super().__init__()
-        self.title_text, self.meaning, self.details = title, meaning, details
-        self.target, self.target_label = target, target_label
+        self.title_text, self.meaning, self.details, self.reviewer = title, meaning, details, reviewer
         self.code = secrets.token_hex(3).upper()
 
     def compose(self) -> ComposeResult:
@@ -181,11 +182,9 @@ class ApprovalDialog(ModalScreen[str | None]):
             yield Static(self.meaning, classes="dialog-text")
             with VerticalScroll(classes="dialog-body"):
                 yield Static(self.details)
-            yield Static(Text.assemble("One-time confirmation code: ", (self.code, "bold reverse")), id="code")
-            yield Input(placeholder="Type the confirmation code", id="in-code")
-            yield Label(self.target_label, classes="dialog-text")
-            yield Input(placeholder=self.target, id="in-target")
-            yield Input(placeholder="Your name (recorded with the approval)", id="in-name")
+            yield Static(Text.assemble("One-time confirmation code: ", (self.code, "bold reverse"),
+                                       ("   approving as ", "dim"), self.reviewer), id="code")
+            yield Input(placeholder="Type the confirmation code, then Enter", id="in-code")
             yield Static("", id="problem")
             with Horizontal(classes="dialog-buttons"):
                 yield Button("Approve", variant="success", id="approve")
@@ -195,25 +194,12 @@ class ApprovalDialog(ModalScreen[str | None]):
         self.query_one("#in-code", Input).focus()
 
     @on(Input.Submitted)
-    def next_field(self, event: Input.Submitted) -> None:
-        order = ["in-code", "in-target", "in-name"]
-        if event.input.id != order[-1]:
-            self.query_one(f"#{order[order.index(event.input.id) + 1]}", Input).focus()
-        else:
-            self.submit()
-
     @on(Button.Pressed, "#approve")
     def submit(self) -> None:
-        code = self.query_one("#in-code", Input).value.strip().upper()
-        target = self.query_one("#in-target", Input).value.strip()
-        name = self.query_one("#in-name", Input).value.strip()
-        problem = ("The confirmation code does not match." if code != self.code
-                   else "The text you typed does not match." if target != self.target
-                   else "A reviewer name is required." if not name else "")
-        if problem:
-            self.query_one("#problem", Static).update(Text(problem, style="bold red"))
+        if self.query_one("#in-code", Input).value.strip().upper() != self.code:
+            self.query_one("#problem", Static).update(Text("The confirmation code does not match.", style="bold red"))
             return
-        self.dismiss(name)
+        self.dismiss(self.reviewer)
 
     @on(Button.Pressed, "#cancel")
     def action_cancel(self) -> None:
@@ -701,7 +687,7 @@ class PackageScreen(Screen):
             "Technical approval", f"Technical approval of {r['id']}: this is a technically correct canonical "
             "representation of the IFS operation. It does not claim runtime validation.",
             rich_text(render_approval, r, self.package.name, "(Operations tab: Enter for the full review)", width=96),
-            r["id"], "Type the operation id to approve it:"), done)
+            reviewer_name(self.package.root)), done)
 
     def action_approve_operations(self) -> None:
         from ifs_agent_ops.cli.review_view import render_operation_set_approval
@@ -742,7 +728,7 @@ class PackageScreen(Screen):
             "Technical approval of an operation set",
             f"Technical approval of {len(plan.pending)} operation(s) used by {cap_id}, each recorded separately.",
             rich_text(render_operation_set_approval, cap_id, plan.pending, plan.current, width=96),
-            plan.acknowledgement, f"Type exactly '{plan.acknowledgement}':"), done)
+            reviewer_name(self.package.root)), done)
 
     def approve_capability(self, cap_id: str | None) -> None:
         from ifs_agent_ops.operations.capability_review import write_review
@@ -780,7 +766,7 @@ class PackageScreen(Screen):
             "Capability approval: this is the intentional and safe business contract that downstream agents and "
             "applications may use. Approval pins this exact content and the revisions of the operations it uses. "
             f"It does NOT claim runtime validation (runtime status stays '{cap.runtime_validation.status}').",
-            details, cap_id, "Type the capability id to approve it:"), done)
+            details, reviewer_name(self.package.root)), done)
 
     def action_write_review(self) -> None:
         from ifs_agent_ops.operations.capability_review import write_review

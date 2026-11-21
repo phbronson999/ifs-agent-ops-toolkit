@@ -271,7 +271,7 @@ def test_approval_is_refused_while_errors_exist(pkg, monkeypatch, capsys):
     # no interactive terminal (automation, agents, pipes): refused even for a valid operation
     assert main(["operations", "approve", "OrderHandling.create.OrderSet", "--package", "ifs-orders"]) == 1
     assert "interactive terminal" in capsys.readouterr().err
-    answers = iter(["C0DE42", "OrderHandling.create.OrderSet", "Pat Reviewer"])
+    answers = iter(["C0DE42"])
     monkeypatch.setattr(cli, "_is_interactive", lambda: True)
     monkeypatch.setattr(cli, "_confirmation_code", lambda: "C0DE42")
     monkeypatch.setattr(cli, "_ask", lambda prompt: next(answers))

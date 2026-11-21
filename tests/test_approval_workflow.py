@@ -14,7 +14,6 @@ from ifs_agent_ops.operations.validate import validate_operation
 from test_capabilities import BASE, USED
 from test_operations import pkg  # noqa: F401
 
-ACK = f"approve {len(USED)} operations for create-order"
 ARGV = ["operations", "approve", "--capability", "create-order", "--package", "ifs-orders"]
 
 
@@ -49,10 +48,10 @@ def changed(pkg, op_id, **update):  # noqa: F811
 def test_one_ceremony_approves_the_set_with_individual_records(ready, monkeypatch, capsys):
     changed(ready, USED[2], runtime_validation=RuntimeValidation(requirements=["standalone POST unproven"]))
     before = {i: (o.revision, o.technical_hash()) for i, o in load_operations(ready).items() if i in USED}
-    calls = human(monkeypatch, ["c0de42", ACK, "Pat Reviewer"])
+    calls = human(monkeypatch, ["c0de42"])
     assert cli.main(ARGV) == 0
     out = capsys.readouterr().out
-    assert len(calls) == 3                                   # one ceremony: code, acknowledgement, name
+    assert len(calls) == 1                                   # one ceremony: the one-time code
     assert "YOU ARE APPROVING these 4 operation(s)" in out and "CHECK ITEMS YOU ARE CONFIRMING" in out
     assert all(i in out for i in USED)
     ops = load_operations(ready)
@@ -72,7 +71,7 @@ def test_set_approval_refuses_validation_errors_and_model_questions(ready, monke
     body = [b.model_copy(update={"in_metadata": False}) if b.name == "CustomerNo" else b for b in op.body]
     changed(ready, USED[2], body=body)                            # unknown-parameter error
     changed(ready, USED[1], review_notes=["does the template need a key?"])
-    calls = human(monkeypatch, ["C0DE42", ACK, "Pat"])
+    calls = human(monkeypatch, ["C0DE42"])
     assert cli.main(ARGV) == 1
     err = capsys.readouterr().err
     assert "unknown-parameter" in err and "open technical model question" in err and calls == []
@@ -81,7 +80,7 @@ def test_set_approval_refuses_validation_errors_and_model_questions(ready, monke
 
 def test_set_approval_is_human_only(ready, monkeypatch, capsys):
     assert cli.main(ARGV) == 1 and "interactive terminal" in capsys.readouterr().err   # scripted / piped
-    human(monkeypatch, ["C0DE42", "approve 3 operations for create-order"])            # wrong acknowledgement
+    human(monkeypatch, ["WRONG1"])                                                      # wrong code
     assert cli.main(ARGV) == 1 and "did not match" in capsys.readouterr().err
 
     def eof(prompt):
@@ -92,7 +91,7 @@ def test_set_approval_is_human_only(ready, monkeypatch, capsys):
 
 
 def test_a_later_change_invalidates_only_that_operation(ready, monkeypatch, capsys):
-    human(monkeypatch, ["C0DE42", ACK, "Pat"])
+    human(monkeypatch, ["C0DE42"])
     assert cli.main(ARGV) == 0
     query = load_operations(ready)[USED[0]].query
     changed(ready, USED[0], query=query.model_copy(update={"top": 5}))   # a technical change
