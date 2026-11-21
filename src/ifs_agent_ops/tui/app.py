@@ -32,6 +32,7 @@ from textual.widgets import (
     Static,
     TabbedContent,
     TabPane,
+    Tabs,
     Tree,
 )
 from textual.widgets.option_list import Option
@@ -62,8 +63,8 @@ def styled(value: str) -> Text:
 
 def item(title: str, state: str, subtitle: str) -> Text:
     """A two-line entry for the single-column lists: a status dot and the name, then a dim subtitle."""
-    colour = STATE_STYLE.get(state, "green" if state == "current" else "yellow")
-    return Text.assemble(("● ", colour), (title, "bold"), "\n  ", (subtitle, "dim"))
+    color = STATE_STYLE.get(state, "green" if state == "current" else "yellow")
+    return Text.assemble(("● ", color), (title, "bold"), "\n  ", (subtitle, "dim"))
 
 
 WRITES = ("POST", "PATCH", "PUT", "DELETE")
@@ -116,9 +117,9 @@ def attention(r: dict) -> Text:
     parts = [(a.get("blocking", 0), "blocking", "red"), (a.get("open", 0), "open question", "magenta"),
              (a.get("check", 0), "check", "yellow")]
     t = Text()
-    for n, label, colour in parts:
+    for n, label, color in parts:
         if n:
-            t.append(f"{n} {label}{'s' if n > 1 else ''}  ", style=colour)
+            t.append(f"{n} {label}{'s' if n > 1 else ''}  ", style=color)
     return t
 
 
@@ -168,7 +169,7 @@ class ConfirmDialog(ModalScreen[bool]):
 
 class ApprovalDialog(ModalScreen[str | None]):
     """The human approval gate: the one-time code shown here and typed back (Enter approves).
-    Returns the reviewer's name (git user.name, else the OS login), or None when cancelled."""
+    Returns the reviewer's name (git user.name, else the OS login), or None when canceled."""
     BINDINGS: ClassVar[list[Binding]] = [Binding("escape", "cancel", "Cancel")]
 
     def __init__(self, title: str, meaning: str, details: str | Text, reviewer: str) -> None:
@@ -336,8 +337,19 @@ class PackageScreen(Screen):
     def tab(self) -> str:
         return self.query_one("#tabs", TabbedContent).active or "overview"
 
+    # the widget that gets focus when a tab is opened with its number key (arrows then act on it)
+    TAB_FOCUS: ClassVar[dict[str, str]] = {"recordings": "#rec-list", "operations": "#op-table",
+                                           "capabilities": "#cap-list"}
+
     def action_tab(self, tab: str) -> None:
-        self.query_one("#tabs", TabbedContent).active = tab
+        tabs = self.query_one("#tabs", TabbedContent)
+        # Move focus out of the current pane first: otherwise Textual refocuses a neighbor of the now hidden
+        # widget (e.g. the scrollable capability detail) and TabbedContent switches back to that widget's tab.
+        tabs.query_one(Tabs).focus()
+        tabs.active = tab
+        target = self.TAB_FOCUS.get(tab)
+        if target:
+            self.call_after_refresh(self.query_one(target).focus)
 
     def check_action(self, action: str, parameters: tuple) -> bool | None:
         tabs = self.ACTION_TABS.get(action)

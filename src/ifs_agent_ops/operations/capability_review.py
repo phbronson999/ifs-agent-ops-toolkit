@@ -78,7 +78,7 @@ def render_review(cap: Capability, ops: dict[str, Operation], workflows: dict[st
     L += ["", "## 5. Questions the agent asks the user", ""]
     L += [f"- **{q.id}** fills `{q.asks}` when {q.when}: {_md_escape(q.prompt)}" for q in cap.questions] or ["_None._"]
 
-    L += ["", "## 6. Organisation configuration", ""]
+    L += ["", "## 6. Organization configuration", ""]
     L += [f"- `{k}` ({v.type}) = **{v.value!r}** — {_md_escape(v.description)}" for k, v in cap.config.items()] or ["_None._"]
 
     L += ["", "## 7. Steps", ""]

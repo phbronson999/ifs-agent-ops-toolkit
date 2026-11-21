@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ifs_agent_ops.analysis.odata import anonymise_filter, parse_projection_url, parse_query
+from ifs_agent_ops.analysis.odata import anonymize_filter, parse_projection_url, parse_query
 from ifs_agent_ops.recordings.har import ObservedCall, body_json, expand_batches
 
 # Request headers worth surfacing as evidence (standard browser headers are omitted).
@@ -131,7 +131,7 @@ def build_sequence(calls: list[ObservedCall]) -> tuple[list[CallView], list[Data
         if target is not None:
             q = parse_query(call.url)
             view.service, view.target, view.is_action = target.service, target.entity_or_function, target.is_action
-            view.filter_pattern = anonymise_filter(q.filter) if q.filter else None
+            view.filter_pattern = anonymize_filter(q.filter) if q.filter else None
             view.select, view.expand = q.select, q.expand
             view.headers = [h for h in EVIDENCE_HEADERS if call.request_header(h) is not None]
             if isinstance(req_body, dict):

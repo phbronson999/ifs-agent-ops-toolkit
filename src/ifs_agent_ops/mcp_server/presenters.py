@@ -17,10 +17,10 @@ NO_SESSION = (
     "window — do not ask the user to do this manually."
 )
 UNAUTHORIZED = (
-    "Session expired or unauthorised. Call the start_oauth tool now to "
+    "Session expired or unauthorized. Call the start_oauth tool now to "
     "re-authenticate — do not ask the user to do this manually."
 )
-UNAUTHORIZED_SHORT = "Session expired or unauthorised. Call start_oauth to re-authenticate."
+UNAUTHORIZED_SHORT = "Session expired or unauthorized. Call start_oauth to re-authenticate."
 
 HttpMethod = Literal["GET", "POST", "PUT", "DELETE", "PATCH"]
 

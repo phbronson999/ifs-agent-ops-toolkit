@@ -20,7 +20,7 @@ from typing import Optional
 
 import yaml
 
-from ifs_agent_ops.analysis.odata import anonymise_filter
+from ifs_agent_ops.analysis.odata import anonymize_filter
 from ifs_agent_ops.analysis.sequence import build_sequence
 from ifs_agent_ops.recordings.har import calls_from_har
 from ifs_agent_ops.recordings.redact import business_values, normalize_hosts, redact_values
@@ -51,7 +51,7 @@ def _fingerprint(har: dict):
     views, links = build_sequence(calls_from_har(har))
     calls = [(v.ref, v.method, v.status, v.kind, v.service, v.target, v.is_action, v.response,
               tuple(v.headers), tuple(v.body_keys), tuple(v.select),
-              tuple(anonymise_filter(x) for x in v.expand),  # nested $filter literals are values
+              tuple(anonymize_filter(x) for x in v.expand),  # nested $filter literals are values
               v.returns_etag, v.traced)
              for v in views]  # includes $batch parts, so redaction inside batches is verified too
     flow = [(ln.to_ref, ln.to_place, ln.from_ref, ln.from_field) for ln in links]
@@ -106,7 +106,7 @@ def import_recording(
     text = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
     leaked_hosts = [h for h in hosts if h in text.lower()]
     if leaked_hosts:
-        raise ImportRefused(f"{len(leaked_hosts)} real host name(s) still present after normalisation; not written")
+        raise ImportRefused(f"{len(leaked_hosts)} real host name(s) still present after normalization; not written")
 
     warnings: list[str] = []
     residual = 0

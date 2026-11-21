@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from ifs_agent_ops.analysis.odata import anonymise_filter, parse_projection_url, parse_query
+from ifs_agent_ops.analysis.odata import anonymize_filter, parse_projection_url, parse_query
 from ifs_agent_ops.analysis.sequence import build_sequence
 from ifs_agent_ops.ifs.metadata.edmx import EdmxModel, Property, _strip_collection
 from ifs_agent_ops.operations.model import (
@@ -69,7 +69,7 @@ def parse_path(path: str) -> list[Segment]:
             continue
         m = re.match(r"^([^()]+)(?:\((.*)\))?$", raw, re.S)
         if not m:
-            raise DraftError(f"Unrecognised path segment {raw!r}")
+            raise DraftError(f"Unrecognized path segment {raw!r}")
         seg = Segment(name=m.group(1), args=m.group(2))
         if seg.args:
             for item in _split_outside_quotes(seg.args, ","):
@@ -157,7 +157,7 @@ def templatize(model: EdmxModel, segs: list[Segment], res: Resolved) -> tuple[st
             # Quoting follows the declared type: a null value is sent unquoted (Key=null) even for
             # strings, so observed quoting alone would split one operation into several templates.
             # A parameter alias (Key=@Alias, value as JSON in the query string) is how IFS sends
-            # structured parameters; the alias name is the client's choice, so it is canonicalised.
+            # structured parameters; the alias name is the client's choice, so it is canonicalized.
             alias = not observed_quoted and value.startswith("@")
             quoted = False if alias else (prop.type == "Edm.String") if prop else observed_quoted
             ph = f"@{name}" if alias else f"'{{{name}}}'" if quoted else f"{{{name}}}"
@@ -275,9 +275,9 @@ def draft_package(package: Package, metadata: dict[str, EdmxModel]) -> Draft:
 
             q = parse_query(call.url)
             _merge_unique(op.query.select, q.select)
-            _merge_unique(op.query.expand, [anonymise_filter(x) for x in q.expand])
+            _merge_unique(op.query.expand, [anonymize_filter(x) for x in q.expand])
             if q.filter:
-                _merge_unique(op.query.filter_patterns, [anonymise_filter(q.filter)])
+                _merge_unique(op.query.filter_patterns, [anonymize_filter(q.filter)])
             _merge_unique(op.query.orderby, [q.orderby])
             if q.top is not None:
                 op.query.top = q.top

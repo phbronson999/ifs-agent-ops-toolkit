@@ -1,4 +1,4 @@
-"""Phase 5: packages, discovery, host normalisation, value redaction and the import boundary."""
+"""Phase 5: packages, discovery, host normalization, value redaction and the import boundary."""
 import json
 import re
 
@@ -140,7 +140,7 @@ def test_skills_dir_overrides_package_skill_with_same_name(tmp_path, monkeypatch
     assert list(names)[-2:] == ["ifs://ifs-common-odata-reference/guide", "ifs://ifs-skill-authoring/guide"]
 
 
-# ── host normalisation ───────────────────────────────────────────────────────
+# ── host normalization ───────────────────────────────────────────────────────
 
 def test_hosts_become_placeholders_everywhere():
     har = sample_har()

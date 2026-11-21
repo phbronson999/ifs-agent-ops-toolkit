@@ -111,7 +111,7 @@ def test_edmx_actions_functions_imports_and_complex_types():
     assert [p.name for p in m.structure(f"{NS}.CheckResult").properties] == ["Ok"]
 
 
-def test_snapshot_normalises_host_and_realm_and_refuses_leaks(tmp_path, monkeypatch):
+def test_snapshot_normalizes_host_and_realm_and_refuses_leaks(tmp_path, monkeypatch):
     p = init_package(tmp_path / "p", "ifs-x")
     openapi = json.dumps({"host": "ifs-real.corp.local", "securityDefinitions": {"o": {
         "tokenUrl": "https://ifs-real.corp.local/auth/realms/corprealm/protocol/openid-connect/token"}}})
@@ -146,7 +146,7 @@ def test_redaction_keeps_batch_protocol_and_redacts_inside():
 
 def test_base64_text_bodies_are_cleaned_like_any_other_and_keep_data_flow():
     """The browser extension stores $batch multipart responses base64-encoded (DevTools exports use text).
-    Sanitizing, host normalisation, redaction and the leak checks must all see inside them."""
+    Sanitizing, host normalization, redaction and the leak checks must all see inside them."""
     import base64
     from ifs_agent_ops.recordings.importer import _fingerprint
     from ifs_agent_ops.recordings.redact import business_values, normalize_hosts

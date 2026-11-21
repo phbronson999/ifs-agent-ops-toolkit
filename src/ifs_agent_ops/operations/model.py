@@ -78,7 +78,7 @@ class Header(_Model):
 class QueryOptions(_Model):
     select: list[str] = Field(default_factory=list)
     expand: list[str] = Field(default_factory=list)
-    filter_patterns: list[str] = Field(default_factory=list, description="Anonymised $filter expressions observed")
+    filter_patterns: list[str] = Field(default_factory=list, description="Anonymized $filter expressions observed")
     orderby: list[str] = Field(default_factory=list)
     top: Optional[int] = None
     fields: dict[str, TypeRef] = Field(default_factory=dict, description="Metadata types of the fields referenced "

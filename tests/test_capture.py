@@ -55,7 +55,7 @@ def demonstrate(store):
     service.apply(store, sid, "complete", ts=103.0, task_id="t1")
     service.ingest(store, sid, call("3", 104.0, "POST", "/OrderSet(OrderNo='ORD-77')/LinesArray",
                                     body={"OrderNo": "ORD-77", "LineNo": "1"}, resp={"OrderNo": "ORD-77"}, status=201))
-    service.apply(store, sid, "add", title="Release order", ts=104.5)   # realised during the recording
+    service.apply(store, sid, "add", title="Release order", ts=104.5)   # realized during the recording
     service.apply(store, sid, "complete", ts=105.0)
     service.ingest(store, sid, call("4", 106.0, "POST", "/OrderSet(OrderNo='ORD-77')/IfsApp.OrderHandling.Order_Release",
                                     status=204, headers={"If-Match": 'W/"1"'}))
@@ -196,7 +196,7 @@ def test_import_carries_the_plan_into_the_package_analysis_and_workflows(store, 
     result, plan = service.import_session(store, sid, pkg)
     assert result.recording == pkg.recordings_dir / "create-order" / f"{sid}.har"
     text = result.recording.read_text(encoding="utf-8")
-    assert "ifs-test.local" not in text and "t0ken" not in text          # sanitized, host normalised
+    assert "ifs-test.local" not in text and "t0ken" not in text          # sanitized, host normalized
     notes = yaml.safe_load(result.annotations.read_text(encoding="utf-8"))
     assert notes["plan"]["complete"] is True and notes["plan"]["session"] == sid
     assert "5832" not in result.annotations.read_text(encoding="utf-8")  # plan text redacted like the recording

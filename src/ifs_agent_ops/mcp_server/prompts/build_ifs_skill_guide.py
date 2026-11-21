@@ -72,7 +72,7 @@ async def har_handler(args: dict[str, str]) -> mcp_types.GetPromptResult:
                     text=(
                         "I want to build an IFS resource guide from a HAR file. "
                         f"Save the skill as {skill_name}. "
-                        f"Please call parse_har_file with path {har_file_path} to analyse it, "
+                        f"Please call parse_har_file with path {har_file_path} to analyze it, "
                         "load the ifs-skill-authoring guide via get_api_guide, "
                         "then guide me through building the skill."
                     ),
@@ -112,7 +112,7 @@ async def openapi_handler(args: dict[str, str]) -> mcp_types.GetPromptResult:
                     text=(
                         "I want to build an IFS resource guide from an OpenAPI spec. "
                         f"Save the skill as {skill_name}. "
-                        f"Please call read_openapi_file with path {openapi_file_path} to analyse it, "
+                        f"Please call read_openapi_file with path {openapi_file_path} to analyze it, "
                         "load the ifs-skill-authoring guide via get_api_guide, "
                         "then guide me through building the skill."
                     ),

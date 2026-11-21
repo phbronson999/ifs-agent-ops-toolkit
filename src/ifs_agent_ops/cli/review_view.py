@@ -2,10 +2,10 @@
 
 Renders only what ``operations.operation_review`` produced; it computes no review facts.
 
-Terminal behaviour:
-- interactive terminal: Rich tables and panels, colour for state only
-- redirected output / CI: no colour, ASCII borders, fixed width (deterministic)
-- NO_COLOR is honoured (Rich reads it); JSON output never comes through here
+Terminal behavior:
+- interactive terminal: Rich tables and panels, color for state only
+- redirected output / CI: no color, ASCII borders, fixed width (deterministic)
+- NO_COLOR is honored (Rich reads it); JSON output never comes through here
 """
 from __future__ import annotations
 
@@ -21,14 +21,14 @@ from rich.text import Text
 
 STATE_STYLE = {"BLOCKED": "bold red", "UNRESOLVED": "bold yellow", "CHECK": "yellow", "READY": "green",
                "APPROVED": "bold green"}
-# Markers carry the state without colour (NO_COLOR, redirected output).
+# Markers carry the state without color (NO_COLOR, redirected output).
 STATE_MARK = {"BLOCKED": "XX", "UNRESOLVED": "!!", "CHECK": "?", "READY": "-", "APPROVED": "ok"}
 LEVEL_STYLE = {"blocking": "bold red", "open": "bold yellow", "check": "yellow", "runtime": "cyan", "info": "dim",
                "known": "dim"}
 LEVEL_MARK = {"blocking": "x", "open": "!", "check": "?", "runtime": ">", "info": "-", "known": "-"}
 RUNTIME_STYLE = {"untested": "cyan", "conditional": "yellow", "validated": "green", "failed": "bold red"}
 LEVEL_TITLE = {"blocking": "BLOCKING", "open": "OPEN QUESTIONS", "check": "CHECKS TO CONFIRM", "info": "INFORMATION",
-               "known": "KNOWN WEB-CLIENT BEHAVIOUR (excluded from the contract)"}
+               "known": "KNOWN WEB-CLIENT BEHAVIOR (excluded from the contract)"}
 DETAIL_LEVELS = ("summary", "details", "full")
 
 
@@ -167,9 +167,9 @@ def render_review_set(console: Console, rs: dict, package_name: str, detail: str
     if ready:
         _heading(console, "NO OPEN TECHNICAL MODEL QUESTIONS OR CHECKS")
         console.print(Text(", ".join(ready), style="green"))
-    if rs["shared_known_behaviour"]:
-        _heading(console, "OBSERVED WEB-CLIENT BEHAVIOUR EXCLUDED FROM CANONICAL CONTRACTS")
-        for k in rs["shared_known_behaviour"]:
+    if rs["shared_known_behavior"]:
+        _heading(console, "OBSERVED WEB-CLIENT BEHAVIOR EXCLUDED FROM CANONICAL CONTRACTS")
+        for k in rs["shared_known_behavior"]:
             console.print(Text(f"  - {k['summary']} ({len(k['operations'])} operations)", style="dim"))
     if detail != "summary":
         for r in rs["operations"]:

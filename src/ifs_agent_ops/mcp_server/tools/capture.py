@@ -83,5 +83,5 @@ async def import_session(session_id: str, package: str, workflow: str = "", name
                  "data_flow_links": result.data_flow_links, "warnings": result.warnings,
                  "plan": {"intent": plan["intent"], "complete": plan["complete"],
                           "tasks": [{k: t[k] for k in ("id", "title", "status", "calls")} for t in plan["tasks"]]},
-                 "next_step": "Analyse it with analyze_recording (calls are grouped by plan task), then "
+                 "next_step": "Analyze it with analyze_recording (calls are grouped by plan task), then "
                               "draft_operations for the package."})

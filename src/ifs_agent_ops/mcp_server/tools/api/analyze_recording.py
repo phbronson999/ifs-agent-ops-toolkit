@@ -8,5 +8,5 @@ async def handler(path: str, include_non_ifs: bool = False) -> str:
         views, links = build_sequence(load_har(path))
         plan = load_plan(path)
     except Exception as exc:
-        return f"Failed to analyse recording: {exc}"
+        return f"Failed to analyze recording: {exc}"
     return render_sequence(views, links, include_other=include_non_ifs, plan=plan)

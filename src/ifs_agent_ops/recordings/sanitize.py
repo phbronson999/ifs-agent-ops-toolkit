@@ -13,7 +13,7 @@ Removes:
 - the entry's ``serverIPAddress``
 - in IFS server-trace envelopes (``ifs-trace``): ``server.environment`` values (user, hosts,
   addresses, paths; ``authType`` kept), SQL bind values, and ``textWithBinds`` (SQL with values
-  inlined). The trace events themselves and parameterised SQL text are kept as evidence.
+  inlined). The trace events themselves and parameterized SQL text are kept as evidence.
 
 Keeps everything else, including business data values. Header *names* are kept with a
 redacted value so the evidence still shows which credentials a call carried.
@@ -165,7 +165,7 @@ class _Sanitizer:
         if isinstance(content.get("text"), str):
             if content.get("encoding") == "base64":
                 # Still base64 after decode_text_bodies: binary (images, files). It cannot be inspected for
-                # secrets or business values and is no evidence of IFS behaviour, so it is not kept.
+                # secrets or business values and is no evidence of IFS behavior, so it is not kept.
                 del content["encoding"]
                 content["text"] = BINARY_REMOVED
                 self.report["binary_body_removed"] += 1

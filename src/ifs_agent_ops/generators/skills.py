@@ -51,15 +51,18 @@ def _cell(text) -> str:
 
 
 def _source_text(src: Source) -> str:
+    """Where a value comes from, plus the binding's note: notes carry how to send it (e.g. a contains
+    search rather than an exact match), which an agent cannot infer from the source alone."""
     kind = src.kind
     if kind == "step":
-        return f"`{src.step}`.{src.field}"
-    if kind == "fixed":
-        return f"`{json.dumps(src.fixed)}`"
-    if kind == "derived":
-        return f"derived: {_one_line(src.derived)}"
-    value = getattr(src, kind)
-    return f"{kind} `{value}`" + (f" ({src.transform})" if src.transform else "")
+        text = f"`{src.step}`.{src.field}"
+    elif kind == "fixed":
+        text = f"`{json.dumps(src.fixed)}`"
+    elif kind == "derived":
+        text = f"derived: {_one_line(src.derived)}"
+    else:
+        text = f"{kind} `{getattr(src, kind)}`" + (f" ({src.transform})" if src.transform else "")
+    return text + (f" (note: {_one_line(src.note)})" if src.note else "")
 
 
 def _when_text(when: dict) -> str:
@@ -89,13 +92,13 @@ def _inputs(cap: Capability) -> list[str]:
                        f"{'yes' if item.required else 'no'} | {_cell('; '.join(n for n in notes if n))} |")
     out.append("")
     if cap.config:
-        out += ["## Organisation settings (never ask for or change these)", ""]
+        out += ["## Organization settings (never ask for or change these)", ""]
         out += [f"- `{k}` = `{v.value}`: {_one_line(v.description)}" for k, v in cap.config.items()]
         out.append("")
     out += ["## Values you never supply", "",
             "Only the inputs above may come from the document, the user or you. Every other value IFS needs "
             "(defaults, customer terms, addresses, prices, totals, cost) is supplied by IFS during the actions "
-            "or by the organisation settings. Never ask the user for those values, never take them from the "
+            "or by the organization settings. Never ask the user for those values, never take them from the "
             "document, and never invent them.", ""]
     return out
 

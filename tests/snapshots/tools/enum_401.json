@@ -1,5 +1,5 @@
 {
-  "output": "{\n  \"error\": \"authentication_required\",\n  \"message\": \"Session expired or unauthorised. Call start_oauth to re-authenticate.\"\n}",
+  "output": "{\n  \"error\": \"authentication_required\",\n  \"message\": \"Session expired or unauthorized. Call start_oauth to re-authenticate.\"\n}",
   "requests": [
     {
       "body": "",

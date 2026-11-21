@@ -153,14 +153,14 @@ async def save_to_scratch(filename: str, content: str) -> str:
 
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
 async def parse_har_file(path: str) -> str:
-    """Read and summarise a browser HAR file for skill authoring. Returns a structured summary of the IFS API calls found in the recording. Provide the absolute path to the .har file exported from browser DevTools."""
+    """Read and summarize a browser HAR file for skill authoring. Returns a structured summary of the IFS API calls found in the recording. Provide the absolute path to the .har file exported from browser DevTools."""
     from ifs_agent_ops.mcp_server.tools.api.parse_har_file import handler
     return await handler(path)
 
 
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
 async def analyze_recording(path: str, include_non_ifs: bool = False) -> str:
-    """Analyse a browser HAR recording of an IFS workflow in recorded order. Unlike parse_har_file (which groups and deduplicates), this keeps every call in sequence, including failed calls, $batch and $metadata, unwraps IFS server-trace responses, lists IFS-relevant request headers (If-Match, Prefer, X-IFS-Accept-Warnings), and shows data flow: which earlier response field supplied each key, body value or If-Match ETag a later call sent. Reports field names and call numbers only, never data values. Provide the absolute path to the .har file."""
+    """Analyze a browser HAR recording of an IFS workflow in recorded order. Unlike parse_har_file (which groups and deduplicates), this keeps every call in sequence, including failed calls, $batch and $metadata, unwraps IFS server-trace responses, lists IFS-relevant request headers (If-Match, Prefer, X-IFS-Accept-Warnings), and shows data flow: which earlier response field supplied each key, body value or If-Match ETag a later call sent. Reports field names and call numbers only, never data values. Provide the absolute path to the .har file."""
     from ifs_agent_ops.mcp_server.tools.api.analyze_recording import handler
     return await handler(path, include_non_ifs)
 
@@ -198,7 +198,7 @@ async def doctor(capabilities: Optional[list[str]] = None, offline: bool = False
 
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
 async def read_openapi_file(path: str) -> str:
-    """Read and summarise a downloaded OpenAPI/Swagger JSON file for skill authoring. Returns a structured summary of the entity sets, methods, and properties found in the spec. Provide the absolute path to the downloaded JSON file."""
+    """Read and summarize a downloaded OpenAPI/Swagger JSON file for skill authoring. Returns a structured summary of the entity sets, methods, and properties found in the spec. Provide the absolute path to the downloaded JSON file."""
     from ifs_agent_ops.mcp_server.tools.api.read_openapi_file import handler
     return await handler(path)
 
@@ -267,7 +267,7 @@ async def capture_skip_task(session_id: str = "", task_id: str = "") -> str:
 @mcp.tool(annotations=_LOCAL_WRITE)
 async def capture_add_task(title: str, session_id: str = "", description: str = "", position: str = "",
                            optional: bool = False) -> str:
-    """Add a task to the recording plan, also during recording when the user realises another business action needs to be demonstrated. While recording it goes right after the current task by default; position may be 'end' or a 1-based number. Set optional when the business action can be done without this step. Tasks added during recording are marked as such."""
+    """Add a task to the recording plan, also during recording when the user realizes another business action needs to be demonstrated. While recording it goes right after the current task by default; position may be 'end' or a 1-based number. Set optional when the business action can be done without this step. Tasks added during recording are marked as such."""
     return await _capture.add_task(title, session_id, description, position, optional)
 
 
@@ -280,7 +280,7 @@ async def capture_stop(session_id: str = "") -> str:
 @mcp.tool(annotations=_LOCAL_WRITE)
 async def capture_import(session_id: str, package: str, workflow: str = "", name: str = "",
                          redact_values: bool = True) -> str:
-    """Import a stopped guided recording into an operation package through the record-import boundary (sanitize, host normalisation, value redaction, verification). The recording plan (intent, tasks, statuses, call ranges) is written into the recording's annotations, so analyze_recording groups calls by task and draft_operations tags observed workflow steps with their task. Only the sanitized recording enters the package; the raw capture stays local."""
+    """Import a stopped guided recording into an operation package through the record-import boundary (sanitize, host normalization, value redaction, verification). The recording plan (intent, tasks, statuses, call ranges) is written into the recording's annotations, so analyze_recording groups calls by task and draft_operations tags observed workflow steps with their task. Only the sanitized recording enters the package; the raw capture stays local."""
     return await _capture.import_session(session_id, package, workflow, name, redact_values)
 
 
