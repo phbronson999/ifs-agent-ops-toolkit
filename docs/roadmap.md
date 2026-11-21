@@ -4,7 +4,7 @@ This is the source of truth for the lifecycle architecture and the phased migrat
 `ifs-mcp-server-local-python`. `docs/migration-from-ifs-mcp.md` records what each completed
 phase changed; this document says where the project is going and in what order.
 
-Status at time of writing: Phases 0–8 merged. The `create-customer-order` capability (revision 4) and its 12 operations are approved by a human; runtime validation is untested. Phase 9 (connector generator) is in review. The decisions recorded on 2026-11-20 are folded
+Status at time of writing: Phases 0–8 merged. The `create-customer-order` capability (revision 4) and its 12 operations are approved by a human; runtime validation is untested. Phase 9 (connector generator) merged. Phase 9a (guided capture: intent, recording plan and task-bucketed browser capture) is in review; it makes browser capture the normal start of capability development (§1.1). Deployment (Phase 10 onwards) waits for the development loop (Phase 9b). The decisions recorded on 2026-11-20 are folded
 in: the customer-order pilot, permanent package `name`, the reserved `.ifs-agent-ops/` folder,
 and the proven agent path as the Phase 13 baseline.
 
@@ -28,6 +28,65 @@ IFS workflow evidence (recordings, $metadata, $openapi)
   -> promotion through environments              ALM (solutions, pipelines)
   -> runtime capability                          consumed by experiences
 ```
+
+### 1.1 Development workflow (Skill Builder)
+
+Capability development **starts with the user's intent and a planned browser recording**. Importing a
+DevTools HAR (`record import`) remains available for evidence that already exists. It is not the normal
+path.
+
+```text
+intent                         "I want to teach the builder how to create a customer order."
+-> recording plan              ordered tasks agreed before capture: [ ] Create order header [ ] Add order line ...
+-> task-bucketed capture       browser extension + toolkit capture session; one current task at a time
+-> analysis / enrichment       recorded order, data flow, grouped by plan task
+-> draft capability + skill    curated from task-bucketed evidence
+-> local Claude/MCP testing    against IFS TEST
+-> another planned recording   whenever more evidence is needed (a new plan; same package)
+-> refine and repeat
+-> local validation            the capability's actions executed directly against TEST
+-> human approval              operations (technical) and capability (business)
+-> deployment artifacts        connector, dispatcher, agent (Phases 9, 12, 13)
+-> deployed-path validation    through the deployed connector / flow / agent (Phase 11)
+```
+
+**The recording plan is semantic evidence from the human demonstrator, not UI state.** The plan
+travels with the recording, from the capture session to the sanitized package recording. It is
+recorded in the recording's annotations, in analysis (calls grouped by task) and in the observed
+workflows the drafter writes (steps carry their task), so capability curation knows which calls
+belong to which business action.
+
+```text
+session -> intent
+        -> ordered task plan
+            -> task -> status (pending | active | complete | skipped), added during recording or not
+                    -> ordered network events
+```
+
+Recording rules:
+- exactly one task is current while recording
+- the user performs that task normally in the IFS web UI
+- events stay in recorded order
+- completing the task closes its interval, and the next task becomes current
+- tasks can be skipped, or added during recording
+- stopping keeps the session, the task boundaries and every event
+- a plan is **complete** when every task is complete or skipped, and **incomplete** otherwise; an
+  incomplete plan can still be imported, and is marked as such
+
+Capture architecture:
+- **The toolkit is the authority.** Sessions, plans, boundaries and raw events live locally in
+  toolkit home (`~/.ifs-agent-ops/captures/<session>/`), never in a repository.
+- **The browser extension is a capture and control client.** It is a Manifest V3 extension for Edge or
+  Chrome, with a Rust/WASM core and a thin JS layer. It records the IFS tab through `chrome.debugger`
+  (in-order requests and responses, with bodies). It strips credential headers before anything
+  leaves the browser, and streams events to the toolkit's local capture API. Its side panel is the
+  recording UI.
+- **Capture surfaces:**
+  - the CLI (`ifs-agent-ops capture ...`)
+  - MCP tools, so Claude can turn an intent into a plan and track progress
+  - the extension's side panel
+- **Into the package:** `capture import` hands the stopped session to the existing
+  `record import` boundary (sanitize, normalise host, redact values, verify). The plan goes with it.
 
 ## 2. Layers and boundaries
 
@@ -233,13 +292,14 @@ Results: PASS, WARN, FAIL, NOT REQUIRED (for the capability asked about).
 | 7 | **Toolchain `doctor` v1** (small, independent) | capability-based checks for `toolkit`, `ifs` and `packages`; PP/agent checks report NOT REQUIRED until their phases | doctor output on a fresh clone is actionable |
 | 7b | **Capability curation: customer order** (human review gate before any generator; no runtime execution) | a new `Capability` model (separate from the observed `Workflow`), schema and validator ([operation-model.md](operation-model.md) §3); `create-customer-order` capability curated from the observed workflows: agent-facing inputs (document/user/agent), lookups and validation, defaults/derived/fixed values, user questions, `prepare` and `submit` actions, confirmation, meaningful outputs/warnings/errors; the canonical operations it uses reviewed and approved; observed calls not included are classified; runtime-validation requirements recorded; the capability itself **approved by a human** | capability validates (every required canonical parameter of each write is bound; every referenced operation is approved); human approval recorded; runtime status stays `untested` |
 | 8 | **Skill generator** | from **approved capabilities** (curated workflow, agent-visible inputs, questions, confirmation), with canonical operations for technical detail; a capability may still carry runtime-validation requirements, and generated artifacts are then marked *not deployment-validated*; writes into the package; replaces legacy `save_skill` defaults | generated skill describes the curated workflow, not the full IFS field surface; datetime contradiction gone |
-| 9 | **Connector generator** | as planned (§5a of the plan: select → prune → compatibility transforms → annotate → validate), selecting **only operations referenced by approved capabilities**; emits `power-platform/connector/*` and the **stable operationId map** | all checks pass; size report |
-| 10 | **Deployment foundations + Power Platform adapter v1** | `deploy.yaml` schema; targets in toolkit home; adapter interface (`plan`/`apply`/`status`); PP adapter for **solution + connector + environment variables + connection-reference placeholders** via `pac`; deployment settings file generation; manual-step checklist; `doctor --for power-platform` | deploy is idempotent to a DEV target (second run is a no-op); status shows drift |
-| 11 | **Validation runner** | target-based `validate`: static, `pac solution check`, runtime calls through the deployed connector/flow (read-only by default), and a **direct-to-IFS mode** that executes curated capability actions against a TEST target to prove their `runtime_validation` requirements (design notes in §6.3) | green on DEV; capability and operation `runtime_validation` status recorded from runs |
+| 9 | **Connector generator** (merged) | as planned (§5a of the plan: select → prune → compatibility transforms → annotate → validate), selecting **only operations referenced by approved capabilities**; emits `power-platform/connector/*` and the **stable operationId map** | all checks pass; size report |
+| 9a | **Guided capture: intent, recording plan, task-bucketed browser capture** (§1.1) | capture session and recording-plan model (toolkit home); local capture API (served by the MCP server or `capture serve`); CLI and MCP surfaces; MV3 browser extension (Rust/WASM core, `chrome.debugger`, side panel); `capture import` through the existing `record import` boundary with the plan in the annotations; analysis and observed workflows grouped by task | an intent -> plan -> recording -> import run produces a package recording whose analysis and drafted workflow show the plan's tasks and boundaries |
+| 9b | **Development loop** (before any deployment) | task-aware drafting of a capability and skill from planned recordings; local Claude/MCP testing against TEST; repeated planned recordings into the same package; **local validation**: the direct-to-IFS execution of curated capability actions (design notes §6.3, moved here from Phase 11), recording `runtime_validation` before human approval | a new capability goes from intent to locally validated and human-approved without hand-written skills or DevTools exports |
+| 10 | **Deployment foundations + Power Platform adapter v1** (after 9b) | `deploy.yaml` schema; targets in toolkit home; adapter interface (`plan`/`apply`/`status`); PP adapter for **solution + connector + environment variables + connection-reference placeholders** via `pac`; deployment settings file generation; manual-step checklist; `doctor --for power-platform` | deploy is idempotent to a DEV target (second run is a no-op); status shows drift |
+| 11 | **Deployed-path validation** | target-based `validate`: static, `pac solution check`, runtime calls through the deployed connector/flow (read-only by default). The direct-to-IFS mode moved to Phase 9b as local validation | green on DEV; capability and operation `runtime_validation` status recorded from runs |
 | 12 | **Dispatcher generator + flow deployment** | dispatcher definition from **capability actions** (their inputs, steps, bindings, outputs), not a mirror of connector parameters; deployed as a solution component; turned on after import | flow runs on DEV through the gateway |
 | 13 | **Agent artifacts + agent adapter** | Baseline is the **proven path** (§6.1): a declarative agent with an API-plugin/OpenAPI action whose endpoint is the authenticated Power Automate HTTP trigger of the Phase 12 flow, using OAuthPluginVault with Entra delegated auth. Generated into `agent/<name>/` (Agents Toolkit layout); `atk` adapter with `--env <target>`; the plugin's server URL resolved per target from the deployed flow's trigger URL; `doctor --for agents` | agent provisioned to DEV reaches IFS through the generated capability, with the same request/response as the proven hand-built agent |
 | 14 | **Promotion and CI readiness** | only artifacts whose capability is runtime `validated` (or `conditional`, within its recorded scope) may be promoted; managed solution versions, `promote` via Pipelines/`pac pipeline deploy`, agent version promotion, service-principal auth paths, release records | DEV → TEST promotion reproducible from CLI |
-| — | Recorder v2 (optional) | browser-driven capture | — |
 
 ### 6.2 Approval is not runtime validation
 
@@ -254,12 +314,19 @@ Three states are tracked separately and never imply each other:
 Lifecycle with the existing phases:
 
 ```text
-evidence (5)  -> canonical operations (6) -> technical approval (7b, human)
-              -> curated capability (7b)   -> capability approval (7b, human)
-              -> generators (8, 9, 12, 13)  -> generated artifacts: draft, not deployment-validated
-              -> runtime / environment validation (10, 11)
-              -> deployment readiness -> promotion (14)
+intent -> recording plan -> task-bucketed capture (9a) -> evidence (5)
+       -> canonical operations (6) + curated capability (7b) + skill (8)    drafts
+       -> local Claude/MCP testing; more planned recordings as needed     (9b loop)
+       -> local validation against TEST (9b)       sets runtime_validation from runs
+       -> technical approval + capability approval (human)
+       -> deployment artifacts (9, 12, 13)         draft, not deployment-validated
+       -> deployed-path validation (10, 11) -> promotion (14)
 ```
+
+The `create-customer-order` pilot was built before this workflow existed (DevTools HAR imports,
+approval before local validation). New capabilities follow the sequence above. Local validation now
+comes before approval, so a reviewer sees runtime evidence. It still never grants or revokes an
+approval.
 
 Rules:
 - Approval never sets runtime status, and runtime status is excluded from approval hashes, so a

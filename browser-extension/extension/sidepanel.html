@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IFS Agent Ops capture</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header>
+    <h1>IFS Agent Ops capture</h1>
+    <div id="connection" class="muted">connecting...</div>
+  </header>
+  <div id="message" class="message" hidden></div>
+  <main id="app"></main>
+  <footer>
+    <details>
+      <summary>Settings</summary>
+      <label>Toolkit address
+        <input id="api-url" type="url" value="http://127.0.0.1:8000">
+      </label>
+      <button id="save-settings" type="button">Save</button>
+      <p class="muted">The MCP server (<code>ifs-agent-ops-mcp</code>) or <code>ifs-agent-ops capture serve</code>
+        must be running. Recordings stay on this machine.</p>
+    </details>
+  </footer>
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

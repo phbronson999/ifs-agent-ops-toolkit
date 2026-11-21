@@ -117,13 +117,34 @@ The project is expected to include:
 
 - **MCP server** - exposes toolkit functionality to AI-assisted development environments
 - **IFS client** - authentication, API access, OpenAPI, and metadata inspection
-- **Manual workflow recorder** - captures task-oriented IFS network activity
+- **Guided capture** - the normal start of capability development: the user's intent and an ordered recording
+  plan, recorded task by task in the IFS web UI by the browser extension (`browser-extension/`, Rust/WASM core)
 - **Analyzer** - converts captured activity into structured operation evidence
 - **Operation model** - maintains canonical definitions of approved operations
 - **Generators** - produce agent, connector, and flow dispatcher source artifacts
 - **Workspace management** - manages independently maintained IFS capability packages
 - **Deployment adapters** - reconcile package intent with Power Platform and Microsoft 365 per target environment
 - **Doctor / bootstrap** - capability-based readiness checks and explicit local setup
+
+## Development workflow
+
+Capability development starts with intent and a planned recording ([roadmap §1.1](docs/roadmap.md)):
+
+```text
+intent -> recording plan -> task-bucketed browser capture -> analysis -> draft capability + skill
+       -> local Claude/MCP testing against TEST -> more planned recordings as needed -> local validation
+       -> human approval -> deployment artifacts -> deployed-path validation
+```
+
+```powershell
+ifs-agent-ops capture new "I want to teach the builder how to create a customer order" `
+    --task "Create order header" --task "Add order line" --task "Add charge" --task "Finish order" `
+    --workflow create-customer-order
+# record in Edge/Chrome with the IFS Agent Ops side panel, then:
+ifs-agent-ops capture import <session> --package ifs-customer-orders
+```
+
+Or tell Claude your intent: the MCP server (`capture_*` tools) proposes and tracks the plan.
 
 ## Design Principles
 

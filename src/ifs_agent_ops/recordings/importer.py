@@ -74,6 +74,7 @@ def import_recording(
     redact: Optional[bool] = None,
     description: str = "",
     force: bool = False,
+    plan: Optional[dict] = None,
 ) -> ImportResult:
     har_path = Path(har_path)
     target = package.recording_path(workflow, task)
@@ -154,6 +155,13 @@ def import_recording(
             "data_flow_links": len(raw_flow),
         },
     }
+    if plan is not None:
+        annotations["plan"] = _redact_plan(plan, mapping) if redact else plan
+        if description == plan.get("intent"):
+            annotations["description"] = annotations["plan"]["intent"]
+        if len(plan.get("tasks", [])) and max((t["entries"][1] for t in plan["tasks"] if t.get("entries")),
+                                                default=-1) >= len(raw.get("log", {}).get("entries", [])):
+            raise ImportRefused("recording plan refers to entries outside the recording; not written")
     notes.write_text(yaml.safe_dump(annotations, sort_keys=False, allow_unicode=True), encoding="utf-8", newline="\n")
     return ImportResult(
         recording=target, annotations=notes, values_redacted=bool(redact), hosts_normalized=hosts,
@@ -161,3 +169,21 @@ def import_recording(
         calls=len(raw_views), ifs_calls=ifs_calls, data_flow_links=len(raw_flow), warnings=warnings,
     )
 
+
+
+def _redact_plan(plan: dict, mapping: dict[str, str]) -> dict:
+    """The demonstrator's plan text (intent, task titles) may quote business values the redactor replaced
+    in the recording (e.g. a customer number): replace them the same way."""
+    originals = sorted((v for v in mapping if len(v) >= 4), key=len, reverse=True)
+    if not originals:
+        return plan
+    pattern = re.compile(r"(?<![A-Za-z0-9])(" + "|".join(re.escape(v) for v in originals) + r")(?![A-Za-z0-9])")
+
+    def clean(text):
+        return pattern.sub(lambda m: mapping[m.group(1)], text) if isinstance(text, str) else text
+
+    out = dict(plan, intent=clean(plan.get("intent")))
+    out["tasks"] = [dict(t, title=clean(t.get("title")), **({"description": clean(t["description"])}
+                                                               if t.get("description") else {}))
+                    for t in plan.get("tasks", [])]
+    return out
