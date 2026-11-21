@@ -186,6 +186,49 @@ def cmd_metadata(args: argparse.Namespace) -> int:
     return asyncio.run(run())
 
 
+def cmd_testlog(args: argparse.Namespace) -> int:
+    """The local test log of call_protected_api calls (see ``ifs_agent_ops.testlog``)."""
+    import json
+
+    from ifs_agent_ops.ifs.paths import PROJECTION_ROOT
+    from ifs_agent_ops.testlog import CallLog
+
+    try:
+        name = prof.resolve_profile(args.profile).name
+    except prof.ProfileError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    log = CallLog.beside_session(prof.session_file(name), name)
+
+    if args.testlog_command == "show":
+        entry = log.get(args.ref)
+        if entry is None:
+            print(f"error: no test log entry {args.ref} for profile {name} ({log.folder})", file=sys.stderr)
+            return 2
+        print(json.dumps(entry, indent=2, ensure_ascii=False))
+        return 0
+
+    days = log.days()
+    if not days:
+        print(f"No test log yet for profile {name} ({log.folder}).")
+        return 0
+    entries = log.entries(None if args.all else (args.day or days[0]))
+    if args.json:
+        print(json.dumps(entries, indent=2, ensure_ascii=False))
+        return 0
+    print(f"Test log for profile {name}: {log.folder}")
+    for e in entries:
+        endpoint = e["endpoint"].removeprefix(PROJECTION_ROOT)
+        flags = " ".join(f for f, on in (("etag", any(k.lower() == "etag" for k in e["response_headers"])),
+                                          ("warnings", any("warning" in k.lower() for k in e["response_headers"])))
+                         if on)
+        status = e["status"] if e["status"] is not None else e.get("error") or "-"
+        print(f"{e['ref']}  {e['at'][11:19]}  {e['method']:<6} {status!s:<4} "
+              f"{e.get('duration_ms') or '-'!s:>6} ms  {endpoint}" + (f"  [{flags}]" if flags else ""))
+    print(f"\n{len(entries)} call(s). Details: ifs-agent-ops testlog show <ref>")
+    return 0
+
+
 def cmd_operations(args: argparse.Namespace) -> int:
     import json
 
@@ -767,8 +810,22 @@ def main(argv: Optional[list[str]] = None) -> int:
     s_gen.add_argument("--check", action="store_true", help="write nothing; exit 1 if a skill is missing or stale")
     _add_output(s_gen)
 
+    tl = sub.add_parser("testlog", help="local log of IFS calls made while testing with Claude (call_protected_api)"
+                        ).add_subparsers(dest="testlog_command", required=True)
+    t_list = tl.add_parser("list", help="calls of the latest day with a log (or --day / --all)")
+    t_list.add_argument("--day", help="YYYY-MM-DD")
+    t_list.add_argument("--all", action="store_true", help="every day")
+    t_list.add_argument("--json", action="store_true")
+    t_list.add_argument("--profile", help="IFS profile (default: active profile)")
+    t_show = tl.add_parser("show", help="one call in full: request, response, response headers")
+    t_show.add_argument("ref", help="reference such as 20261121-0007 (the tool result's test_log_ref)")
+    t_show.add_argument("--profile", help="IFS profile (default: active profile)")
+
     args = parser.parse_args(argv)
     load_env()
+
+    if args.command == "testlog":
+        return cmd_testlog(args)
 
     if args.command == "package":
         return cmd_package(args)

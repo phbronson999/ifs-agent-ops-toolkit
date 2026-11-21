@@ -23,21 +23,25 @@ class AuthenticationRequired(IfsError):
       - ``unauthorized``: IFS answered 401/403 (``status`` is set).
     """
 
-    def __init__(self, reason: AuthReason, *, status: Optional[int] = None, detail: str = "") -> None:
+    def __init__(self, reason: AuthReason, *, status: Optional[int] = None, detail: str = "",
+                 headers: dict[str, str] | None = None) -> None:
         super().__init__(detail or reason)
         self.reason = reason
         self.status = status
         self.detail = detail
+        self.headers = headers or {}
 
 
 class IfsApiError(IfsError):
     """IFS answered with a non-2xx status other than 401/403.
 
-    ``detail`` is the parsed JSON body when it is JSON, otherwise the response text.
+    ``detail`` is the parsed JSON body when it is JSON, otherwise the response text; ``headers`` are the
+    response headers (kept for the test log).
     """
 
-    def __init__(self, status: int, detail: Any, text: str) -> None:
+    def __init__(self, status: int, detail: Any, text: str, headers: dict[str, str] | None = None) -> None:
         super().__init__(f"IFS API error {status}")
         self.status = status
         self.detail = detail
         self.text = text
+        self.headers = headers or {}

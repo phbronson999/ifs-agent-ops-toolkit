@@ -1,8 +1,10 @@
 import json
+import time
 from typing import Literal, Optional
 
 from ifs_agent_ops.ifs.client import IfsClient
 from ifs_agent_ops.mcp_server.presenters import call_api
+from ifs_agent_ops.testlog import CallLog
 
 _MAX_RESPONSE_SIZE = 100 * 1024  # 100 KB
 
@@ -46,8 +48,28 @@ async def handler(
     body: Optional[dict],
     headers: Optional[dict],
     client: IfsClient,
+    test_log: CallLog | None = None,
 ) -> str:
-    result = await call_api(client, endpoint, method, session_id=session_id, body=body, headers=headers or {})
+    started = time.monotonic()
+    try:
+        result = await call_api(client, endpoint, method, session_id=session_id, body=body, headers=headers or {})
+    except Exception as exc:  # transport failures propagate unchanged, but are logged first
+        if test_log is not None:
+            test_log.record(method=method, endpoint=endpoint, request_headers=headers, request_body=body,
+                            status=None, ok=False, error=type(exc).__name__, message=str(exc),
+                            duration_ms=int((time.monotonic() - started) * 1000))
+        raise
+
+    # With a test log, every result carries the entry's reference; without one the output is unchanged.
+    ref = None
+    if test_log is not None:
+        ref = test_log.record(
+            method=method, endpoint=endpoint, request_headers=headers, request_body=body,
+            status=result.status, ok=result.success, response_headers=result.headers,
+            response_body=result.data if result.success else (result.details or result.message),
+            error=result.error, message=result.message if not result.success else None,
+            duration_ms=int((time.monotonic() - started) * 1000))
+    tail = {"test_log_ref": ref} if ref else {}
 
     if not result.success:
         return json.dumps({
@@ -55,13 +77,14 @@ async def handler(
             "status": result.status,
             "message": result.message,
             "details": result.details,
+            **tail,
         }, indent=2)
 
-    response_json = json.dumps({"status": result.status, "data": result.data}, indent=2)
+    response_json = json.dumps({"status": result.status, "data": result.data, **tail}, indent=2)
 
     if len(response_json) > _MAX_RESPONSE_SIZE:
         summary = _build_large_response_summary(result.data, endpoint)
         if summary:
-            return json.dumps(summary, indent=2)
+            return json.dumps({**summary, **tail}, indent=2)
 
     return response_json
