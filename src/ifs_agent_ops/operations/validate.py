@@ -1,6 +1,6 @@
 """IFS rules checked against canonical operations.
 
-Each rule encodes a trap documented in the skill authoring guide or seen in real IFS behaviour,
+Each rule encodes a trap documented in the skill authoring guide or seen in real IFS behavior,
 so it is caught once, in the model, instead of in every generated artifact.
 """
 from __future__ import annotations

@@ -35,7 +35,8 @@ def approved(pkg, monkeypatch):  # noqa: F811
                 runtime_validation={"status": "untested", "requirements": ["standalone line insert"]})
     data["steps"] = [dict(s) for s in BASE["steps"]]
     data["steps"][2] = dict(data["steps"][2], bindings=dict(data["steps"][2]["bindings"],
-                                                            **{"header.X-IFS-Accept-Warnings": {"fixed": "true"}}))
+                                                            **{"header.X-IFS-Accept-Warnings": {
+                                                                "fixed": "true", "note": "recorded web-client  behavior"}}))
     _cap_file(pkg, data)
     approve_capability(pkg, "create-order", "Pat")
     return pkg
@@ -62,7 +63,7 @@ def test_generated_skill_contract(approved):
     assert r.action == "created" and r.path == approved.skills_dir / "create-order.md"
     text = r.path.read_text(encoding="utf-8")
     assert text.startswith("# Create an order\n\nCreate an order from a document.\n\n" + MARKER)
-    for expected in ("## Information you collect", "`customer_no`", "`lines[].qty`", "## Organisation settings",
+    for expected in ("## Information you collect", "`customer_no`", "`lines[].qty`", "## Organization settings",
                      "`site` = `S1`", "## Values you never supply", "never invent them", "## Questions to ask",
                      "## Conversation flow", "Wait for an explicit yes", "### Action `submit`",
                      "- Writes to IFS: yes", "## Out of scope (do not offer)", "- Charges",
@@ -72,6 +73,8 @@ def test_generated_skill_contract(approved):
         assert expected in text, expected
     # request rules come from capability bindings and recorded evidence
     assert "`create-header`: send header `X-IFS-Accept-Warnings: true`." in text
+    # binding notes (how to send a value) reach the agent, on one line
+    assert '`header.X-IFS-Accept-Warnings` <- `"true"` (note: recorded web-client behavior)' in text
     assert "`WantedDate` is a calendar date sent as `YYYY-MM-DDT00:00:00Z` (format observed" in text
     assert "`customer-defaults`" not in text  # nothing beyond the capability's own steps
 

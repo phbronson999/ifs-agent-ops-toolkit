@@ -15,7 +15,7 @@ from ifs_agent_ops.operations.operation_review import LEVELS, review_dir
 from ifs_agent_ops.workspace.package import Package
 
 _LEVEL_TITLE = {"blocking": "Blocking (validation errors)", "open": "Open questions", "check": "Checks to confirm",
-                "info": "Information", "known": "Known web-client behaviour (excluded from the contract)"}
+                "info": "Information", "known": "Known web-client behavior (excluded from the contract)"}
 _STATE_NOTE = {"BLOCKED": "validation errors; approval is refused",
                "UNRESOLVED": "open technical model questions recorded",
                "CHECK": "reviewer checks to confirm",
@@ -66,9 +66,9 @@ def render_review_document(rs: dict, package_name: str) -> str:
         out += [f"### {r['name']}: {r['state']}", ""]
         out += _group_lines(r, levels=("blocking", "open", "check"))
         out.append("")
-    if rs["shared_known_behaviour"]:
-        out += ["## Observed web-client behaviour excluded from canonical contracts", ""]
-        out += [f"- {k['summary']} ({len(k['operations'])} operation(s))" for k in rs["shared_known_behaviour"]]
+    if rs["shared_known_behavior"]:
+        out += ["## Observed web-client behavior excluded from canonical contracts", ""]
+        out += [f"- {k['summary']} ({len(k['operations'])} operation(s))" for k in rs["shared_known_behavior"]]
         out.append("")
 
     carried = [(r, q) for r in rs["operations"] for q in r["runtime_validation"]["requirements"]]

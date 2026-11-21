@@ -1,6 +1,6 @@
 """Technical review of canonical operations, for the human who approves them.
 
-``build_operation_review`` gathers everything a reviewer needs as plain, JSON-serialisable data
+``build_operation_review`` gathers everything a reviewer needs as plain, JSON-serializable data
 (the core result). Every presentation (terminal views in ``cli.review_view``, Markdown in
 ``operations.review_markdown``, JSON) is rendered from that result and nothing else. Observed examples come
 from the package's *sanitized* recordings and are reduced to value shapes, so no business values
@@ -140,11 +140,11 @@ def _add(target: dict, key: str, value: str) -> None:
 #   check     something the reviewer must consciously confirm (validator warnings, review checks)
 #   runtime   must be proven by runtime validation; not a doubt about the canonical model
 #   info      informational validator findings
-#   known     classified web-client behaviour, excluded from the canonical contract
+#   known     classified web-client behavior, excluded from the canonical contract
 LEVELS = ("blocking", "open", "check", "runtime", "info", "known")
 _VALIDATOR_LEVEL = {"error": "blocking", "warning": "check", "info": "info"}
 
-# States, derived only from findings and approval data (never from a judgement):
+# States, derived only from findings and approval data (never from a judgment):
 #   BLOCKED     at least one blocking finding
 #   APPROVED    approved, approval current, nothing blocking
 #   UNRESOLVED  at least one open technical model question
@@ -164,9 +164,9 @@ GROUP_SUMMARY = {
     "datetime-zone": "{n} Edm.DateTimeOffset field(s): confirm how IFS interprets the time zone.",
     "null-unquoted-key": "{n} quoted string key(s) were sent as an unquoted null; callers must emit null "
                          "without quotes.",
-    "composite-parameter": "{n} composite IFS structure(s): the metadata type is modelled; which members a "
+    "composite-parameter": "{n} composite IFS structure(s): the metadata type is modeled; which members a "
                            "caller must supply is a runtime-validation question.",
-    "client-prefer-header": "Prefer wait header sent by the IFS web client (client behaviour, excluded from "
+    "client-prefer-header": "Prefer wait header sent by the IFS web client (client behavior, excluded from "
                             "the API contract).",
     "required-not-observed": "{n} required parameter(s) never observed in a recording.",
 }
@@ -177,7 +177,7 @@ def _finding(source: str, code: str, level: str, message: str, subject: Optional
 
 
 def _review_checks(op: Operation, model: Optional[EdmxModel], obs: dict) -> list[dict]:
-    """Things a reviewer should consciously confirm, plus classified client behaviour."""
+    """Things a reviewer should consciously confirm, plus classified client behavior."""
     out = []
     for p in op.path_parameters:
         if any(pl.alias for pl in p.placements):
@@ -194,12 +194,12 @@ def _review_checks(op: Operation, model: Optional[EdmxModel], obs: dict) -> list
                                 f"{p.type.enum}'<Member>', not a bare string.", p.name))
         if _structure(model, p.type.edm if p.type else None):
             out.append(_finding("review", "composite-parameter", "runtime",
-                                f"{p.name} is a composite IFS structure (type modelled from metadata); which "
+                                f"{p.name} is a composite IFS structure (type modeled from metadata); which "
                                 "members a caller must supply is proven only by runtime validation.", p.name))
     for b in op.body:
         if _structure(model, b.type.edm if b.type else None):
             out.append(_finding("review", "composite-parameter", "runtime",
-                                f"body {b.name} is a composite IFS structure (type modelled from metadata); which "
+                                f"body {b.name} is a composite IFS structure (type modeled from metadata); which "
                                 "members a caller must supply is proven only by runtime validation.", b.name))
         if b.type and b.type.edm == "Edm.DateTimeOffset" and b.observed:
             out.append(_finding("review", "datetime-zone", "check",
@@ -208,7 +208,7 @@ def _review_checks(op: Operation, model: Optional[EdmxModel], obs: dict) -> list
     if "prefer" in obs["request_headers"]:
         out.append(_finding("review", "client-prefer-header", "known",
                             "Prefer (" + ", ".join(obs["request_headers"]["prefer"]) + ") was sent by the IFS web "
-                            "client; it is client behaviour, not part of the API contract.", "Prefer"))
+                            "client; it is client behavior, not part of the API contract.", "Prefer"))
     if op.method == "POST" and op.kind == "create" and "etag" in obs["response_headers"]:
         out.append(_finding("review", "create-returns-etag", "info",
                             "Create returns an ETag; a later update or bound action on the new record must send it "
@@ -281,7 +281,7 @@ def _request_usage(op: Operation, ops: dict[str, Operation], capabilities: dict)
 def build_operation_review(package: Package, op: Operation, ops: dict[str, Operation],
                            model: Optional[EdmxModel] = None, capabilities: Optional[dict] = None,
                            cache: Optional[dict] = None) -> dict:
-    """Structured technical review data for one operation (JSON-serialisable, deterministic)."""
+    """Structured technical review data for one operation (JSON-serializable, deterministic)."""
     cache = {} if cache is None else cache
     capabilities = capabilities or {}
     obs = _observations(package, op, cache)
@@ -391,7 +391,7 @@ def build_review_set(reviews: list[dict], capability: Optional[Any] = None) -> d
                                for st in ("untested", "conditional", "validated", "failed")},
             "runtime_requirements": sum(len(r["runtime_validation"]["requirements"]) for r in reviews),
         },
-        "shared_known_behaviour": sorted(shared.values(), key=lambda s: s["code"]),
+        "shared_known_behavior": sorted(shared.values(), key=lambda s: s["code"]),
         "operations": reviews,
         "meaning": MEANING,
     }

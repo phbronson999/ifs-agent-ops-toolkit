@@ -1,5 +1,5 @@
 {
-  "output": "{\n  \"error\": \"authentication_required\",\n  \"status\": 403,\n  \"message\": \"Session expired or unauthorised. Call the start_oauth tool now to re-authenticate \\u2014 do not ask the user to do this manually.\",\n  \"details\": null\n}",
+  "output": "{\n  \"error\": \"authentication_required\",\n  \"status\": 403,\n  \"message\": \"Session expired or unauthorized. Call the start_oauth tool now to re-authenticate \\u2014 do not ask the user to do this manually.\",\n  \"details\": null\n}",
   "requests": [
     {
       "body": "",

@@ -1,4 +1,4 @@
-"""Capture operations shared by the CLI, the MCP tools and the local capture API (one behaviour, three surfaces)."""
+"""Capture operations shared by the CLI, the MCP tools and the local capture API (one behavior, three surfaces)."""
 from __future__ import annotations
 
 import json

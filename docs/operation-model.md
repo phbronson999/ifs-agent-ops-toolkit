@@ -22,7 +22,7 @@ Recording
 The two approvals mean different things, and neither implies the other:
 
 - **Operation approval** means *this is a technically correct canonical representation of the
-  IFS operation.* It doesn't imply agent exposure, connector exposure, or authorisation for any
+  IFS operation.* It doesn't imply agent exposure, connector exposure, or authorization for any
   particular capability.
 - **Capability approval** means *this is the intentional and safe business contract that
   downstream agents and applications may use.* Only approved capabilities, through the approved
@@ -72,7 +72,7 @@ PDF / user input
 ## 1. Observed workflows (evidence)
 
 An observed workflow is the recorded sequence of IFS calls, with data-flow bindings. It includes
-UI-only lookups, refreshes, redundant reads, and validations triggered by UI behaviour. The pilot
+UI-only lookups, refreshes, redundant reads, and validations triggered by UI behavior. The pilot
 recording has 72 steps. It's kept as evidence and is **never** generated from directly.
 
 A recording made by guided capture also carries the demonstrator's **recording plan**:
@@ -231,12 +231,12 @@ Validation rules for capabilities (Phase 7b):
 1. **`$batch` subrequests are first-class evidence.** Order lines were created inside a `$batch`
    changeset. Batch parts keep their order (`#58.2`), data flow, redaction and evidence
    references (`call_index` + `part`).
-2. **IFS behavioural rules are evidence-driven unless metadata or documentation proves them
+2. **IFS behavioral rules are evidence-driven unless metadata or documentation proves them
    universal.** "No `Z` on write datetimes" came from shop floor clocking actions; customer-order
    writes accepted `Z`. The model records the format IFS accepted per operation.
 3. **Function parameter quoting follows the declared type.** `TaxCode=null` and `TaxCode='T1'`
    are one parameter of one operation.
-4. **Organisation-specific business configuration in IFS metadata belongs in the organisation's
+4. **Organization-specific business configuration in IFS metadata belongs in the organization's
    package.** An example is a configured layout name such as `TietexsamplesDOTnlbl` as an enum
    member. Credentials, hosts, realms, internal network identifiers and secrets remain the
    things that are removed.

@@ -1,7 +1,7 @@
 """Session token storage: in-memory map plus a JSON file on disk.
 
 Replaces the legacy module-level ``token_store`` + ``session_manager`` pair with one object
-that takes its file path as a parameter. Behaviour is deliberately unchanged:
+that takes its file path as a parameter. Behavior is deliberately unchanged:
 
 - ``load()`` copies the file into memory (legacy ``initialize_token_store()`` at startup).
 - ``get()`` reads memory only; a session written to the file by another process after

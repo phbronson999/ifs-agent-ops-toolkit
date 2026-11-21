@@ -1,11 +1,11 @@
 """Small, reviewable YAML updates for approval state.
 
 Approving an operation or capability changes two top-level entries: ``status`` and ``approval``.
-Re-serialising the whole document would expand flow mappings, unfold folded text and drop
+Re-serializing the whole document would expand flow mappings, unfold folded text and drop
 comments, so a one-line decision becomes a diff of hundreds of lines. Instead the two entries are
 replaced (or inserted) as text, and the result is re-parsed and compared with the intended model.
 If the patched text does not mean exactly the intended model, nothing clever is attempted: the
-caller's full serialiser writes the file instead.
+caller's full serializer writes the file instead.
 
 Content hashes are computed on the parsed model, never on file text, so formatting never changes
 an operation's or capability's identity.

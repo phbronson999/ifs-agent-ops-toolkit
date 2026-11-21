@@ -1,7 +1,7 @@
 """Parity tests: ifs_agent_ops must reproduce outputs captured from the legacy ifs_mcp_server.
 
 Snapshots are produced by scripts/capture_legacy_snapshots.py. If a difference is an
-intended behaviour change, re-baseline deliberately and record why in the commit.
+intended behavior change, re-baseline deliberately and record why in the commit.
 """
 import pytest
 

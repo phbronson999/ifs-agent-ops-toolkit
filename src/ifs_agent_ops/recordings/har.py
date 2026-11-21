@@ -1,7 +1,7 @@
 """Load a browser HAR file into an ordered list of observed calls.
 
 This is the *evidence* layer: every entry is kept, in recorded order, with request and
-response headers, bodies and status codes. Nothing is filtered, grouped or anonymised here;
+response headers, bodies and status codes. Nothing is filtered, grouped or anonymized here;
 analysis (``ifs_agent_ops.analysis``) builds views on top of this list.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ def decode_text_bodies(har: dict) -> int:
     """In place: store base64-encoded response bodies that are UTF-8 text as plain text, as DevTools exports do.
 
     Browsers hand some bodies over base64-encoded (e.g. $batch multipart responses captured by the extension).
-    Sanitizing, host normalisation, value redaction and the leak checks work on text, so every one of them
+    Sanitizing, host normalization, value redaction and the leak checks work on text, so every one of them
     decodes first; binary bodies (images, files) stay base64. Returns how many bodies were decoded."""
     decoded = 0
     for e in har.get("log", {}).get("entries", []) or []:

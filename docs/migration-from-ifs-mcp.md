@@ -71,7 +71,7 @@ mcp_server_port = 8001
 ```
 
 - Selection: `--profile` > `IFS_PROFILE` > `default_profile`; with none, the `.env` variables
-  form an implicit `default` profile (unchanged behaviour for existing setups).
+  form an implicit `default` profile (unchanged behavior for existing setups).
 - Named profiles never read the legacy `API_BASE_URL`/`OAUTH_*` variables, so a `.env` pointing
   at TEST cannot leak into a PROD profile.
 - Sessions: `~/.ifs-agent-ops/profiles/<name>/session.json`. The `default` profile copies
@@ -88,7 +88,7 @@ mcp_server_port = 8001
 |---|---|---|
 | Evidence | `recordings/har.py` | `load_har()` -> ordered `ObservedCall` list: every entry, headers, bodies, status. `payload()` unwraps IFS server-trace envelopes |
 | Evidence | `recordings/sanitize.py` | `sanitize_har()` -> copy without credentials, `_initiator`, `serverIPAddress`, trace infrastructure details or SQL bind values |
-| Analysis | `analysis/odata.py` | projection URL + OData query parsing, `$filter` anonymisation |
+| Analysis | `analysis/odata.py` | projection URL + OData query parsing, `$filter` anonymization |
 | Analysis | `analysis/grouping.py`, `summary.py` | legacy grouped view (`parse_har_file` output, unchanged) |
 | Analysis | `analysis/sequence.py` | ordered view + data flow (keys, body values, ETag -> If-Match) |
 
@@ -97,7 +97,7 @@ mcp_server_port = 8001
   `{"request","response","server","ifs-trace"}`; the OData payload is the string `response.body`.
   The sequence view unwraps it. The legacy grouped view does not (its unprinted `response_sample`
   was always the envelope skeleton for such recordings) and is kept as-is for parity.
-- Sanitizing keeps business data values and host names; review before sharing outside the organisation.
+- Sanitizing keeps business data values and host names; review before sharing outside the organization.
 - Optional local parity check on real recordings:
   `IFS_LEGACY_SRC=<legacy src> IFS_REAL_HAR_DIR=<har folder> pytest tests/test_real_har_parity.py`
 
@@ -113,7 +113,7 @@ mcp_server_port = 8001
 - **Guidance** moved to `ifs_agent_ops/guidance/`; the bundled skills moved to the
   `ifs-customer-orders` and `ifs-shop-floor-clockings` package repos (copies kept as test fixtures).
 - **Import boundary** (`ifs-agent-ops record import`): raw HAR -> `sanitize` -> host
-  normalisation (`ifs.example`) -> `redact-values` (package default; `--keep-values` opts out) ->
+  normalization (`ifs.example`) -> `redact-values` (package default; `--keep-values` opts out) ->
   verification -> `recordings/<workflow>/<task>.har` + `.annotations.yaml`. The import is refused
   if the call sequence or any data-flow link differs from the raw recording, or a real host remains.
   Raw files are never copied into a package.
@@ -130,7 +130,7 @@ mcp_server_port = 8001
 
 - **Metadata:** `edmx.py` now parses actions, functions, action/function imports and complex
   types. `ifs-agent-ops metadata snapshot` pins `$metadata` + `$openapi?V2` into
-  `metadata/<Projection>/`, with host and realm normalised (`ifs.example`, `example`) and a
+  `metadata/<Projection>/`, with host and realm normalized (`ifs.example`, `example`) and a
   `snapshot.yaml` holding hashes. Drafting reads only pinned snapshots.
 - **Model** (`operations/model.py`, pydantic, JSON Schema via `operations schema`):
   - `Operation` keeps the original IFS path template (`{Key}` placeholders). Path parameters are
@@ -188,7 +188,7 @@ A **capability** (`<package>/capabilities/<id>.yaml`) is the intentional, safe b
 downstream agents and applications may use. It is a separate model from the observed `Workflow`
 (evidence) and the canonical `Operation` (technical truth). It declares:
 
-- organisation `config` values (unset values block approval)
+- organization `config` values (unset values block approval)
 - agent-facing `inputs` with their source (`document`, `user`, `agent`), `resolve` lookups and `confirm` flags
 - user `questions`, `actions` (e.g. `prepare` writes nothing; `submit` requires confirmation)
 - `steps` over approved operations with a role (lookup, validation, defaults, calculation, write),
@@ -233,7 +233,7 @@ which computes facts of its own:
 - `open`: a recorded open question
 - `check`: something the reviewer must confirm
 - `info`
-- `known`: classified web-client behaviour, such as the Prefer wait header, excluded from the contract
+- `known`: classified web-client behavior, such as the Prefer wait header, excluded from the contract
 
 Equivalent findings are grouped (for example, "24 decimal fields ... IEEE754Compatible") and keep their
 field lists. The operation **state** is derived from the levels and approval data alone:
@@ -244,9 +244,9 @@ field lists. The operation **state** is derived from the levels and approval dat
 - CHECK: there are checks to confirm
 - READY: otherwise
 
-The terminal views use Rich. In an interactive terminal they use colour for state only. When output is
-redirected, they print ASCII, no colour and a fixed width, so the output is deterministic. `NO_COLOR` is
-honoured.
+The terminal views use Rich. In an interactive terminal they use color for state only. When output is
+redirected, they print ASCII, no color and a fixed width, so the output is deterministic. `NO_COLOR` is
+honored.
 
 `operations approve` shows the operation summary, a YOU ARE APPROVING / YOU ARE NOT APPROVING panel, and
 any unresolved questions and checks before the unchanged human gate. Approval also pins the technical
@@ -291,7 +291,7 @@ headers) is Phase 11 work, recorded in roadmap §6.3. It was not built in Phase 
 - **Small approval diffs:** operation and capability approval now replace only the top-level `status`
   and `approval` entries in the YAML file (`operations/yaml_persist.py`). The rest of a hand-authored
   file (comments, flow mappings, folded text) is untouched. The patched text is re-parsed and compared
-  with the intended model before it is written; if they differ, the full serialiser is used instead.
+  with the intended model before it is written; if they differ, the full serializer is used instead.
   Content hashes are computed on the parsed model, so formatting never changes identity.
 
 ## Phase 8: skill generator
@@ -307,7 +307,7 @@ their full field surface.
 
 For the agent:
 - what to collect, and where each input comes from
-- organisation settings, which are never asked for
+- organization settings, which are never asked for
 - values never supplied (defaults, terms, prices, totals and cost come from IFS)
 - the questions to ask
 - the `prepare` / confirmation / `submit` flow
@@ -441,7 +441,7 @@ DevTools HAR (`record import`) stays available for existing evidence.
 
 **Into the package:**
 - `capture import` exports the stopped session as a local raw HAR and runs the existing
-  `record import` (sanitize, host normalisation, value redaction, verification).
+  `record import` (sanitize, host normalization, value redaction, verification).
 - The recording annotations gain a `plan` block: intent, completeness, tasks with status and
   0-based entry ranges, and unassigned ranges. Business values the redactor replaced are also
   replaced in the plan text.

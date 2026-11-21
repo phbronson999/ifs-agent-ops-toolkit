@@ -175,3 +175,23 @@ def test_operation_details_open_full_screen_and_step_through_the_list(ready):  #
             assert screen.selected["operations"] == screen.op_order[1]
 
     asyncio.run(scenario())
+
+
+def test_number_keys_switch_tabs_even_with_focus_in_the_capability_list(ready):  # noqa: F811
+    """Regression: with the Capabilities list focused, 5 showed Generate for a split second and then Textual
+    refocused the (scrollable) capability detail, which switched the tab back."""
+    async def scenario():
+        app = ReviewApp()
+        async with app.run_test(size=(180, 60)) as pilot:
+            await pilot.pause()
+            app.screen.query_one(OptionList).highlighted = 0
+            await pilot.press("enter")
+            await until(pilot, lambda: isinstance(app.screen, PackageScreen) and app.screen.caps, "the package")
+            screen = app.screen
+            for start, focused in (("4", "cap-list"), ("2", "rec-list"), ("3", "op-table")):
+                await pilot.press(start)
+                await until(pilot, lambda f=focused: app.focused is not None and app.focused.id == f, f"focus {focused}")
+                await pilot.press("5")
+                await pilot.pause(0.3)                                   # long enough for a refocus to switch back
+                assert screen.tab == "generate", f"from tab {start}"
+    asyncio.run(scenario())

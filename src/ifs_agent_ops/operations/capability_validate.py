@@ -105,7 +105,7 @@ def validate_capability(cap: Capability, ops: dict[str, Operation]) -> list[Find
 
     for name, cv in cap.config.items():
         if cv.value is None:
-            add(f"config.{name}", "config-unset", "error", "configuration value not set (organisation decision)")
+            add(f"config.{name}", "config-unset", "error", "configuration value not set (organization decision)")
 
     for i, step in enumerate(cap.steps):
         where = f"step {step.id}"

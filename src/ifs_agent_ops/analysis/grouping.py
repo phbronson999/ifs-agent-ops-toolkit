@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
-from ifs_agent_ops.analysis.odata import anonymise_filter, parse_projection_url, parse_query
+from ifs_agent_ops.analysis.odata import anonymize_filter, parse_projection_url, parse_query
 from ifs_agent_ops.recordings.har import ObservedCall
 
 
@@ -103,7 +103,7 @@ def group_calls(calls: list[ObservedCall]) -> ParsedHar:
         q = parse_query(call.url)
         _add_unique(g.select_fields, q.select)
         if q.filter:
-            _add_unique(g.filter_patterns, [anonymise_filter(q.filter)])
+            _add_unique(g.filter_patterns, [anonymize_filter(q.filter)])
         _add_unique(g.expand, q.expand)
         _add_unique(g.orderby, [q.orderby])
         if q.top is not None:

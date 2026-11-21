@@ -313,7 +313,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Read and summarise a browser HAR file for skill authoring. Returns a structured summary of the IFS API calls found in the recording. Provide the absolute path to the .har file exported from browser DevTools.",
+      "description": "Read and summarize a browser HAR file for skill authoring. Returns a structured summary of the IFS API calls found in the recording. Provide the absolute path to the .har file exported from browser DevTools.",
       "inputSchema": {
         "properties": {
           "path": {
@@ -335,7 +335,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Read and summarise a downloaded OpenAPI/Swagger JSON file for skill authoring. Returns a structured summary of the entity sets, methods, and properties found in the spec. Provide the absolute path to the downloaded JSON file.",
+      "description": "Read and summarize a downloaded OpenAPI/Swagger JSON file for skill authoring. Returns a structured summary of the entity sets, methods, and properties found in the spec. Provide the absolute path to the downloaded JSON file.",
       "inputSchema": {
         "properties": {
           "path": {

@@ -69,7 +69,7 @@ _LINK_SUFFIX_RE = re.compile(r"@odata\.(navigationLink|associationLink|editLink|
 _MIN_SUBSTITUTION_LEN = 3
 
 
-# ── host normalisation ───────────────────────────────────────────────────────
+# ── host normalization ───────────────────────────────────────────────────────
 
 def host_map(har: dict) -> dict[str, str]:
     ifs, other = [], []
