@@ -161,6 +161,21 @@ The log is kept per profile in `~/.ifs-agent-ops/profiles/<profile>/test-log/`, 
 business data and the IFS host, so it stays on your machine and never goes into a package. Tokens and cookies
 are never written. Set `IFS_AGENT_OPS_TEST_LOG=off` to turn it off.
 
+### Validation findings
+
+After testing a capability against IFS, Claude records what each test showed against the capability's numbered
+runtime-validation requirements: passed, failed or inconclusive, a plain-language summary, and the test log
+references of the calls that show it. Findings are saved in the package as
+`validation/<capability>.findings.yaml`, so commit them with the package.
+
+```powershell
+ifs-agent-ops validation status create-customer-order --package ifs-customer-orders
+```
+
+Each requirement shows its latest finding, or "not tested". If a requirement's wording changes in a later
+revision, its earlier findings are marked outdated and stop counting. Findings are a report only: they never
+change the capability's runtime-validation status or its approval. The execution engine sets that status.
+
 ## Reviewing and approving
 
 A recording becomes usable in three reviews. The first is a look at the evidence. The other two are the
