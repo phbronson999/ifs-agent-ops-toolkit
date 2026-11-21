@@ -229,6 +229,39 @@ def cmd_testlog(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_validation(args: argparse.Namespace) -> int:
+    """What testing against IFS has shown per runtime-validation requirement (findings; report only)."""
+    import json
+
+    from ifs_agent_ops.operations.capability_store import load_capabilities
+    from ifs_agent_ops.operations.findings import (
+        FindingError,
+        load_findings,
+        requirement_status,
+        status_summary,
+    )
+    from ifs_agent_ops.workspace.discovery import find_package
+    from ifs_agent_ops.workspace.package import PackageError
+
+    try:
+        package = find_package(args.package)
+        caps = load_capabilities(package)
+        if args.capability not in caps:
+            raise FindingError(f"no capability {args.capability!r} in {package.name}")
+        cap = caps[args.capability]
+        data = load_findings(package, cap.id)
+    except (PackageError, KeyError, FindingError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps([{"requirement": r.number, "text": r.text, "status": r.status,
+                           "latest": r.latest.model_dump() if r.latest else None,
+                           "outdated_findings": len(r.outdated)} for r in requirement_status(cap, data)], indent=2))
+    else:
+        print(status_summary(cap, data))
+    return 0
+
+
 def cmd_operations(args: argparse.Namespace) -> int:
     import json
 
@@ -821,11 +854,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     t_show.add_argument("ref", help="reference such as 20261121-0007 (the tool result's test_log_ref)")
     t_show.add_argument("--profile", help="IFS profile (default: active profile)")
 
+    val = sub.add_parser("validation", help="findings from testing against IFS, per runtime-validation requirement"
+                         ).add_subparsers(dest="validation_command", required=True)
+    v_status = val.add_parser("status", help="each requirement: passed / failed / inconclusive / not tested")
+    v_status.add_argument("capability")
+    v_status.add_argument("--package", required=True)
+    v_status.add_argument("--json", action="store_true")
+
     args = parser.parse_args(argv)
     load_env()
 
     if args.command == "testlog":
         return cmd_testlog(args)
+    if args.command == "validation":
+        return cmd_validation(args)
 
     if args.command == "package":
         return cmd_package(args)

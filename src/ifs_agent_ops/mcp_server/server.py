@@ -186,6 +186,24 @@ async def get_operation(package: str, operation_id: str) -> str:
     return await handler(package, operation_id)
 
 
+@mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def get_validation_status(package: str, capability: str) -> str:
+    """Show what testing against IFS has shown so far for a capability: its numbered runtime-validation requirements, each PASSED / FAILED / INCONCLUSIVE / NOT TESTED with the latest finding and the test_log_ref of the calls behind it. Call this before testing a capability to see what still needs testing, and to get the requirement numbers for record_validation_finding. Pass the package name (from IFS_AGENT_OPS_PACKAGES) or its path."""
+    from ifs_agent_ops.mcp_server.tools.validation import get_status
+    return await get_status(package, capability)
+
+
+@mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False))
+async def record_validation_finding(package: str, capability: str, requirement: int, result: Literal["passed", "failed", "inconclusive"], summary: str, test_log_refs: list[str] | None = None) -> str:
+    """Record what a test against IFS showed for one runtime-validation requirement of a capability (numbered as in get_validation_status). Record right after testing, one finding per requirement you tested: 'passed' when the calls show the requirement holds, 'failed' when they show it does not (say what IFS did instead), 'inconclusive' when the test could not decide it. test_log_refs are the test_log_ref values call_protected_api returned for the calls that show it (required for passed and failed). The summary is committed with the package, so write it for a reviewer in plain language and name only the test records needed (for example the order number); never paste raw responses, tokens or personal data. Findings are a report: they never change the capability's runtime_validation status or its approval."""
+    from ifs_agent_ops.mcp_server.tools.validation import record
+    try:
+        log = getattr(rt(), "test_log", None)
+    except ProfileError:  # no profile configured: refs cannot be checked against a log
+        log = None
+    return await record(package, capability, requirement, result, summary, test_log_refs, log)
+
+
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=True))
 async def doctor(capabilities: Optional[list[str]] = None, offline: bool = False) -> str:
     """Check this machine's readiness for toolkit work, per capability: toolkit, ifs, packages (default), power-platform, agents, spfx. Read-only: reports PASS / WARN / FAIL / NOT REQUIRED with a concrete fix for each problem; never installs, signs in or changes anything."""
