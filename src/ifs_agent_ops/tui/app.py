@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import secrets
+import textwrap
 from collections import Counter
 from collections.abc import Callable
 from typing import ClassVar
@@ -103,6 +104,32 @@ def detail_lines(data: dict) -> list[Text]:
     for ln in data["links"]:
         lines.append(Text.assemble(("receives ", "dim"), ln.to_place, (" <- ", "dim"),
                                    (f"#{ln.from_ref} ", "dim"), ln.from_field))
+    return lines
+
+
+def call_detail_lines(entry: dict, max_lines: int = 40) -> list[Text]:
+    """A logged call's request and response, for the Testing tree: headers, bodies (cut), timing."""
+    import json
+
+    def block(title: str, value) -> list[Text]:
+        if value in (None, {}, ""):
+            return []
+        text = value if isinstance(value, str) else json.dumps(value, indent=2, ensure_ascii=False)
+        rows = text.splitlines()
+        out = [Text(title, style="bold")] + [Text("  " + r) for r in rows[:max_lines]]
+        if len(rows) > max_lines:
+            out.append(Text(f"  ... {len(rows) - max_lines} more line(s): ifs-agent-ops testlog show {entry['ref']}",
+                            style="dim"))
+        return out
+
+    lines = [Text.assemble((f"{entry['method']} ", "bold"), entry["endpoint"],
+                           (f"  -> {entry['status']}  {entry.get('duration_ms')} ms", "dim"))]
+    if entry.get("error") and not entry.get("ok"):
+        lines.append(Text(f"{entry['error']}: {entry.get('message') or ''}", style="red"))
+    lines += block("Request headers", entry.get("request_headers"))
+    lines += block("Request body", entry.get("request_body"))
+    lines += block("Response headers", entry.get("response_headers"))
+    lines += block("Response body", entry.get("response_body"))
     return lines
 
 
@@ -268,7 +295,8 @@ class PackagePicker(Screen):
 
 # ── package ─────────────────────────────────────────────────────────────────
 
-TABS = ("overview", "recordings", "operations", "capabilities", "generate")
+TABS = ("overview", "recordings", "operations", "capabilities", "testing", "generate")
+TEST_STYLE = {"passed": "green", "failed": "bold red", "inconclusive": "yellow", "not tested": "dim"}
 
 
 class PackageScreen(Screen):
@@ -285,7 +313,7 @@ class PackageScreen(Screen):
     ]
     # action -> tabs where it applies (others are hidden from the footer)
     ACTION_TABS: ClassVar[dict[str, set[str]]] = {"draft": {"operations", "recordings"}, "filter": {"operations"}, "approve": {"operations",
-                   "capabilities"}, "approve_operations": {"capabilities"}, "write_review": {"capabilities"},
+                   "capabilities"}, "approve_operations": {"capabilities"}, "write_review": {"capabilities", "testing"},
                    "generate": {"generate"}}
 
     def __init__(self, package: Package) -> None:
@@ -294,7 +322,9 @@ class PackageScreen(Screen):
         self.reviews: dict[str, dict] = {}
         self.caps: dict[str, st.CapabilityState] = {}
         self.recs: dict[str, st.RecordingInfo] = {}
-        self.selected: dict[str, str | None] = {"recordings": None, "operations": None, "capabilities": None}
+        self.selected: dict[str, str | None] = {"recordings": None, "operations": None, "capabilities": None,
+                                                 "testing": None}
+        self.test_log = None  # the active profile's test log, resolved when the Testing tab first loads
         self.op_order: list[str] = []  # operation ids in list order (the detail view steps through them)
         self.analyses: dict[str, tuple] = {}  # recording -> (views, links), parsed once per refresh
         self.drift: dict[str, list[str]] = {}  # approved operations the newer recordings disagree with
@@ -320,7 +350,12 @@ class PackageScreen(Screen):
             with TabPane("4 Capabilities", id="capabilities"), Horizontal():
                 yield OptionList(id="cap-list", classes="side")
                 yield VerticalScroll(Static("", id="cap-detail"), classes="detail")
-            with TabPane("5 Generate", id="generate"):
+            with TabPane("5 Testing", id="testing"), Horizontal():
+                yield OptionList(id="test-list", classes="side")
+                with Vertical(classes="detail"):
+                    yield Static("Select a capability to see what testing against IFS has shown.", id="test-head")
+                    yield Tree("requirements", id="test-tree")
+            with TabPane("6 Generate", id="generate"):
                 yield VerticalScroll(Static("Open this tab to check what generation would change.", id="gen-body"))
         yield Footer()
 
@@ -339,7 +374,7 @@ class PackageScreen(Screen):
 
     # the widget that gets focus when a tab is opened with its number key (arrows then act on it)
     TAB_FOCUS: ClassVar[dict[str, str]] = {"recordings": "#rec-list", "operations": "#op-table",
-                                           "capabilities": "#cap-list"}
+                                           "capabilities": "#cap-list", "testing": "#test-list"}
 
     def action_tab(self, tab: str) -> None:
         tabs = self.query_one("#tabs", TabbedContent)
@@ -413,8 +448,8 @@ class PackageScreen(Screen):
             body.append(f"  {c.id}: {c.status} rev {c.revision}, ")
             body.append("approval current" if c.approval_current else "approval NOT current",
                         style="green" if c.approval_current else "yellow")
-            body.append(f", uses {len(c.operations)} operation(s)\n")
-        body.append("\nKeys: 1-5 switch tabs, arrows move, r refreshes, Esc goes back to the package list.\n",
+            body.append(f", uses {len(c.operations)} operation(s); testing: {c.testing_text()}\n")
+        body.append("\nKeys: 1-6 switch tabs, arrows move, r refreshes, Esc goes back to the package list.\n",
                     style="dim")
         self.query_one("#overview-body", Static).update(body)
 
@@ -429,6 +464,11 @@ class PackageScreen(Screen):
                             else "approval current" if c.approval_current else "capability needs approval")))
             for c in view.capabilities])
         self.show_capability(self.selected["capabilities"])
+        self.fill_side_list("test-list", "testing", [
+            (c.id, item(c.id, "current" if c.requirements and c.testing["passed"] == c.requirements
+                        else "needs approval", f"{c.testing_text()} · rev {c.revision}"))
+            for c in view.capabilities])
+        self.show_testing(self.selected["testing"])
 
     def fill_side_list(self, list_id: str, kind: str, items: list[tuple[str, Text]]) -> None:
         """Refill a single-column list, keeping the selection (keys act on the first item until it moves)."""
@@ -503,6 +543,9 @@ class PackageScreen(Screen):
         elif event.option_list.id == "cap-list":
             self.selected["capabilities"] = key
             self.show_capability(key)
+        elif event.option_list.id == "test-list":
+            self.selected["testing"] = key
+            self.show_testing(key)
 
     @on(DataTable.RowHighlighted, "#op-table")
     def operation_highlighted(self, event: DataTable.RowHighlighted) -> None:
@@ -599,6 +642,62 @@ class PackageScreen(Screen):
         if data and not data.get("loaded") and ("view" in data or "flow" in data):
             data["loaded"] = True
             for line in detail_lines(data):
+                node.add_leaf(line)
+
+    # ── testing (validation findings with the logged calls behind them) ──
+
+    @work(thread=True, exclusive=True, group="testing")
+    def show_testing(self, cap_id: str | None) -> None:
+        from ifs_agent_ops.operations.capability_store import load_capabilities
+        from ifs_agent_ops.operations.evidence import active_log, build_evidence
+
+        cap = load_capabilities(self.package).get(cap_id or "")
+        if cap is None:
+            return
+        if self.test_log is None:
+            self.test_log = active_log()
+        ev = build_evidence(self.package, cap, self.test_log)
+        self.app.call_from_thread(self.fill_testing, ev)
+
+    def fill_testing(self, ev) -> None:
+        """Requirements, then the findings for each (newest first), then the logged calls each finding cites.
+        A call's request and response are only built when it is expanded."""
+        head = Text.assemble((f"{ev.title}\n", "bold"), f"{ev.capability} rev {ev.revision}: ")
+        for status in ("passed", "failed", "inconclusive", "not tested"):
+            if ev.counts[status]:
+                head.append(f"{ev.counts[status]} {status}  ", style=TEST_STYLE[status])
+        head.append(f"\nFindings are a report: runtime-validation status stays '{ev.runtime_status}'. Claude records "
+                    "findings while testing; w writes the evidence report.", style="dim")
+        self.query_one("#test-head", Static).update(head)
+        tree = self.query_one("#test-tree", Tree)
+        tree.clear()
+        tree.show_root = False
+        for r in ev.requirements:
+            label = Text.assemble((f"{r.number}. ", "bold"), (f"{r.status.upper():<13}", TEST_STYLE[r.status]),
+                                  r.text)
+            req = tree.root.add(label, expand=False, allow_expand=bool(r.findings or r.outdated))
+            for f, outdated in [(f, False) for f in r.findings] + [(f, True) for f in r.outdated]:
+                fl = Text.assemble((f"{f.id} ", "bold"), (f"{f.result} ", TEST_STYLE[f.result]),
+                                   (f"{f.recorded_at[:10]} {f.recorded_by}, rev {f.capability_revision}"
+                                    + ("  OUTDATED (earlier wording)" if outdated else ""), "dim"),
+                                   "  ", f.summary)
+                long_summary = len(f.summary) > 90  # tree labels are one line: show the whole text underneath too
+                node = req.add(fl, expand=False, allow_expand=bool(f.test_log_refs) or long_summary)
+                if long_summary:
+                    for part in textwrap.wrap(f.summary, 100):
+                        node.add_leaf(Text(part, style="italic"))
+                for ref in f.test_log_refs:
+                    call = r.calls[ref]
+                    node.add(Text(call.line(), style="" if call.found else "yellow"), data={"call": call},
+                             expand=False, allow_expand=call.found)
+
+    @on(Tree.NodeExpanded, "#test-tree")
+    def expand_call(self, event: Tree.NodeExpanded) -> None:
+        """A logged call's request and response, built the first time it is expanded."""
+        node, data = event.node, event.node.data
+        if data and "call" in data and not data.get("loaded"):
+            data["loaded"] = True
+            for line in call_detail_lines(data["call"].entry):
                 node.add_leaf(line)
 
     def show_capability(self, cap_id: str | None) -> None:
@@ -786,6 +885,19 @@ class PackageScreen(Screen):
         from ifs_agent_ops.operations.store import load_operations, load_workflows
 
         caps = load_capabilities(self.package)
+        if self.tab == "testing":
+            from ifs_agent_ops.operations.evidence import (
+                active_log,
+                build_evidence,
+                write_report,
+            )
+
+            cap_id = self.selected["testing"]
+            if cap_id in caps:
+                ev = build_evidence(self.package, caps[cap_id], self.test_log or active_log())
+                self.app.push_screen(MessageDialog("Evidence report written (local, not committed)",
+                                                   str(write_report(self.package, ev))))
+            return
         cap_id = self.selected["capabilities"]
         if cap_id in caps:
             path = write_review(self.package, caps[cap_id], load_operations(self.package),
