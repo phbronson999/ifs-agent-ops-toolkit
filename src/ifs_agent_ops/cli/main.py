@@ -81,7 +81,7 @@ def cmd_har_sanitize(args: argparse.Namespace) -> int:
     print(f"{src} ({src.stat().st_size // 1024} KB) -> {dst} ({dst.stat().st_size // 1024} KB)")
     for k, v in sorted(report.items()):
         print(f"  {k}: {v}")
-    print("note: business data values are kept; review before sharing outside your organisation.")
+    print("note: business data values are kept; review before sharing outside your organization.")
     return 0
 
 
@@ -140,7 +140,7 @@ def cmd_record_import(args: argparse.Namespace) -> int:
         return 2
     print(f"imported into {package.name}: {r.recording.relative_to(package.root)}")
     print(f"  calls: {r.calls} ({r.ifs_calls} IFS), data-flow links: {r.data_flow_links} (verified unchanged)")
-    print(f"  hosts normalised: {len(r.hosts_normalized)} -> {', '.join(sorted(set(r.hosts_normalized.values()))) or '-'}")
+    print(f"  hosts normalized: {len(r.hosts_normalized)} -> {', '.join(sorted(set(r.hosts_normalized.values()))) or '-'}")
     print(f"  values redacted: {'yes' if r.values_redacted else 'no (--keep-values)'}"
           + (f", {r.values_mapped} distinct values mapped" if r.values_redacted else ""))
     print("  sanitized: " + ", ".join(f"{k}={v}" for k, v in sorted(r.sanitize_report.items())))
@@ -637,7 +637,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     pkg.add_parser("list", help="list packages found via IFS_AGENT_OPS_PACKAGES")
 
     rec = sub.add_parser("record", help="recordings in packages").add_subparsers(dest="record_command", required=True)
-    r_imp = rec.add_parser("import", help="sanitize, normalise hosts, redact values, verify and add a HAR to a package")
+    r_imp = rec.add_parser("import", help="sanitize, normalize hosts, redact values, verify and add a HAR to a package")
     r_imp.add_argument("har")
     r_imp.add_argument("--package", required=True, help="package name (from IFS_AGENT_OPS_PACKAGES) or path")
     r_imp.add_argument("--workflow", required=True)
@@ -645,7 +645,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     r_imp.add_argument("--description", default="")
     group = r_imp.add_mutually_exclusive_group()
     group.add_argument("--keep-values", action="store_true",
-                       help="keep business values (only sanitize + host normalisation)")
+                       help="keep business values (only sanitize + host normalization)")
     group.add_argument("--redact-values", action="store_true", help="redact business values (package default)")
     r_imp.add_argument("--force", action="store_true", help="replace an existing recording")
 
@@ -700,7 +700,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     meta = sub.add_parser("metadata", help="projection metadata snapshots").add_subparsers(
         dest="metadata_command", required=True)
-    m_snap = meta.add_parser("snapshot", help="pin $metadata and $openapi?V2 into a package (host/realm normalised)")
+    m_snap = meta.add_parser("snapshot", help="pin $metadata and $openapi?V2 into a package (host/realm normalized)")
     m_snap.add_argument("--package", required=True)
     m_snap.add_argument("--projection", required=True, action="append", help="projection name (repeatable)")
     m_snap.add_argument("--profile", help="IFS profile to fetch from (default: active profile)")

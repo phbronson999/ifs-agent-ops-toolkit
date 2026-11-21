@@ -136,7 +136,7 @@ def parse_edmx(xml_text: str) -> EdmxModel:
     model = EdmxModel()
     schemas = root.findall(".//edm:Schema", NS)
 
-    # Enums first so property types can be recognised regardless of schema order.
+    # Enums first so property types can be recognized regardless of schema order.
     for schema in schemas:
         namespace = schema.get("Namespace", "")
         for el in schema.findall("edm:EnumType", NS):

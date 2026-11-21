@@ -56,9 +56,9 @@ def write_snapshot(package: Package, projection: str, *, metadata_xml: str, open
     parse_edmx(files[METADATA_FILE])  # refuse unparseable metadata
     for name, text in files.items():
         if host and host in text.lower():
-            raise SnapshotRefused(f"{name}: real host still present after normalisation; not written")
+            raise SnapshotRefused(f"{name}: real host still present after normalization; not written")
         if realm and re.search(r"/realms/" + re.escape(realm) + r"\b", text):
-            raise SnapshotRefused(f"{name}: realm still present after normalisation; not written")
+            raise SnapshotRefused(f"{name}: realm still present after normalization; not written")
 
     target = snapshot_dir(package, projection)
     target.mkdir(parents=True, exist_ok=True)

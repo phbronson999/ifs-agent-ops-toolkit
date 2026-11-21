@@ -1,4 +1,4 @@
-"""Recognise IFS projection calls in URLs and parse their OData query options."""
+"""Recognize IFS projection calls in URLs and parse their OData query options."""
 from __future__ import annotations
 
 import re
@@ -66,7 +66,7 @@ def parse_query(url: str) -> ODataQuery:
     return q
 
 
-def anonymise_filter(f: str) -> str:
+def anonymize_filter(f: str) -> str:
     """Replace literal values in a $filter with placeholders; IfsApp enum literals are kept."""
     f = re.sub(r"eq '(?!IfsApp)[^']*'", "eq '{value}'", f)
     f = re.sub(r"ne '(?!IfsApp)[^']*'", "ne '{value}'", f)

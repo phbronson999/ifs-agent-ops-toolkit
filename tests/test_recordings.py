@@ -180,4 +180,4 @@ def test_mcp_analyze_recording_tool_reports_failures(tmp_path):
 
     out = asyncio.run(handler(str(FIXTURE)))
     assert "#12 GET CustomerOrderHandling/CustomerOrderSet -> 404 FAILED error" in out
-    assert asyncio.run(handler(str(tmp_path / "missing.har"))).startswith("Failed to analyse recording:")
+    assert asyncio.run(handler(str(tmp_path / "missing.har"))).startswith("Failed to analyze recording:")

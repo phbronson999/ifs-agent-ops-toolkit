@@ -86,7 +86,7 @@ Capture architecture:
   - MCP tools, so Claude can turn an intent into a plan and track progress
   - the extension's side panel
 - **Into the package:** `capture import` hands the stopped session to the existing
-  `record import` boundary (sanitize, normalise host, redact values, verify). The plan goes with it.
+  `record import` boundary (sanitize, normalize host, redact values, verify). The plan goes with it.
 
 ## 2. Layers and boundaries
 
@@ -278,7 +278,7 @@ Separate problems, separate owners:
 3. authentication (each CLI's own sign-in)
 4. tenant/environment provisioning (`deploy`)
 5. secrets (Key Vault or CI secret stores, never files in repos)
-6. organisation prerequisites: IFS IAM clients, gateway, managed environments, Pipelines host (documented checklists that `doctor` verifies but never performs)
+6. organization prerequisites: IFS IAM clients, gateway, managed environments, Pipelines host (documented checklists that `doctor` verifies but never performs)
 
 Results: PASS, WARN, FAIL, NOT REQUIRED (for the capability asked about).
 
@@ -350,7 +350,7 @@ Rules:
   - validation errors
   - technical-model ambiguity
   - conflicting evidence
-  - unusual or destructive behaviour (e.g. deletes, state transitions)
+  - unusual or destructive behavior (e.g. deletes, state transitions)
   - incomplete metadata or evidence
   - other explicit review findings
 
@@ -428,7 +428,7 @@ What this means for the deployment model:
   time, never committed to the package.
 - **OAuth registration is per environment.** The OAuthPluginVault reference (from `atk`
   `oauth/register` or the Teams Developer Portal) and the Entra app registration whose token the
-  trigger accepts are organisation prerequisites, recorded in targets as references only.
+  trigger accepts are organization prerequisites, recorded in targets as references only.
 - **The trigger's authentication setting** ("who can trigger") is part of the flow source and is
   validated in Phase 11.
 - **Order:** Phase 12 deploys the flow and records its trigger URL. Phase 13 provisions the agent
