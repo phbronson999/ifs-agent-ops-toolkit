@@ -174,7 +174,7 @@ platform** on every `status`/`deploy` (e.g. `pac solution list`, `pac solution o
 or in the package's reserved **`.ifs-agent-ops/`** folder, which every package `.gitignore`
 excludes and which never becomes canonical source. The platform is authoritative, never the cache.
 
-### 3.3 Commands (conceptual; not implemented)
+### 3.3 Commands
 
 | Command | Changes anything? | Responsibility |
 |---|---|---|
@@ -182,9 +182,9 @@ excludes and which never becomes canonical source. The platform is authoritative
 | `bootstrap [--for <capability>]` | local only, explicit | install/configure deterministic local prerequisites, each step confirmed |
 | `generate --package` | package files only | run generators for approved operations |
 | `validate --package [--target]` | no | static artifact checks; with `--target`, platform and runtime checks |
-| `plan --package --target` | no | compute the diff between intent and deployed state |
-| `deploy --package --target` | external, explicit | reconcile (create or update, never duplicate), then report |
-| `status --package --target` | no | what is deployed, which versions, drift from source |
+| `deploy plan --package --target` | no | compute the diff between intent and deployed state (implemented, Phase 10) |
+| `deploy apply --package --target` | external, explicit | reconcile (create or update, never duplicate), then verify and report (implemented, Phase 10) |
+| `deploy status --package --target` | no | what is deployed, which versions, drift from source, manual steps left (implemented, Phase 10) |
 | `promote --package --from --to` | external, explicit | move a validated managed solution version (Pipelines/`pac pipeline deploy`) |
 
 `doctor` inspects, `bootstrap` changes only the local machine on request, and

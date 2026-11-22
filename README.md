@@ -253,24 +253,39 @@ ifs-agent-ops connector generate --package ifs-customer-orders   # Power Platfor
 
 `--check` reports what would change without writing anything.
 
-The connector uses **Basic authentication through the on-premises data gateway**. The IFS username,
-password and gateway are chosen when someone creates the connection; they are never stored in the package.
-
-### Deployment intent
-
-`deploy.yaml` declares what should exist in Power Platform, by logical name only: the solution and its
-publisher, the connector, the environment variable that holds the IFS host (the deployed connector's host
-becomes `@environmentVariables("<name>")`), and the connection reference.
-
-```powershell
-ifs-agent-ops deploy init  --package ifs-customer-orders --publisher TietexAdmin --prefix ti
-ifs-agent-ops deploy check --package ifs-customer-orders
-```
+There is one connector per IFS service (`power-platform/connectors/<Projection>/`), using **Basic
+authentication through the on-premises data gateway**. The IFS username, password and gateway are chosen when
+someone creates the connection; they are never stored in the package.
 
 In the TUI you approve from a confirmation dialog: review it and press Enter. The CLI approve commands only
 run in an interactive terminal and ask you to type back a one-time code shown on screen, because an agent could
 run them. Your git `user.name` (or your Windows login) is recorded as the reviewer. They refuse to run from
 a script or from Claude, because a person must approve. Claude can run the drafts and reviews and walk you through the reports.
+
+## Deploying to Power Platform
+
+`deploy.yaml` (committed with the package) declares what should exist, by logical name only: the solution and
+its publisher, one connector per IFS service, the environment variable that holds the IFS host (the deployed
+connector's host becomes `@environmentVariables("<name>")`), and a connection reference per connector.
+A **target** (machine-local, in `~/.ifs-agent-ops/targets/<package>/`, never committed) names the environment.
+Sign in to Power Platform first with `pac auth create`.
+
+```powershell
+ifs-agent-ops deploy init    --package ifs-customer-orders --publisher TietexAdmin --prefix ti
+ifs-agent-ops deploy check   --package ifs-customer-orders
+ifs-agent-ops targets init   --package ifs-customer-orders --target dev      # pick from pac env list
+ifs-agent-ops deploy plan    --package ifs-customer-orders --target dev      # read-only: what would change
+ifs-agent-ops deploy apply   --package ifs-customer-orders --target dev      # asks before changing anything
+ifs-agent-ops deploy status  --package ifs-customer-orders --target dev      # read-only, plus manual steps
+ifs-agent-ops doctor --for power-platform
+```
+
+`apply` imports one unmanaged solution file with only what differs, adds existing components (such as a shared
+environment variable) to the solution, then reads the environment back; a second `apply` changes nothing.
+Connectors are always created inside the solution by import, which keeps the gateway setting (`pac connector
+create` loses it). A person still creates each connection (gateway, IFS username and password) and picks it on
+the connection reference; `status` lists what is left. The toolkit deploys to the development environment only:
+promote with Power Platform Pipelines. `apply` also writes the deployment settings file next to the target.
 
 ## Design Principles
 
