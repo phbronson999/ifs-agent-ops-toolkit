@@ -20,7 +20,7 @@ def package(tmp_path):
 
 
 def _intent(package, **changes):
-    data = yaml.safe_load(di.scaffold(package, "TietexAdmin", "ti"))
+    data = yaml.safe_load(di.scaffold(package, "ContosoAdmin", "ti"))
     pp = data["power_platform"]
     for key, value in changes.items():
         section, _, field = key.partition("__")
@@ -30,7 +30,7 @@ def _intent(package, **changes):
 
 
 def test_scaffold_is_valid_and_has_only_logical_names(package):
-    text = di.scaffold(package, "TietexAdmin", "ti")
+    text = di.scaffold(package, "ContosoAdmin", "ti")
     intent = di.parse(yaml.safe_load(text), package.root / di.DEPLOY_FILE)
     assert di.validate(intent, package) == ([], [])
     pp = intent.power_platform
@@ -89,9 +89,9 @@ def test_cli_init_then_check(package, monkeypatch, capsys):
     from ifs_agent_ops.cli.main import main
 
     monkeypatch.setenv("IFS_AGENT_OPS_PACKAGES", str(package.root))
-    argv = ["deploy", "init", "--package", "ifs-customer-orders", "--publisher", "TietexAdmin", "--prefix", "ti"]
+    argv = ["deploy", "init", "--package", "ifs-customer-orders", "--publisher", "ContosoAdmin", "--prefix", "ti"]
     assert main(argv) == 0
-    assert di.load_intent(package).power_platform.solution.publisher == "TietexAdmin"
+    assert di.load_intent(package).power_platform.solution.publisher == "ContosoAdmin"
     assert main(argv) == 2                                  # never overwrites
     capsys.readouterr()
     assert main(["deploy", "check", "--package", "ifs-customer-orders", "--json"]) == 0

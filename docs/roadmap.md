@@ -131,7 +131,7 @@ power_platform:
   solution:
     unique_name: IfsCustomerOrders        # stable once deployed
     display_name: IFS Customer Orders
-    publisher: TietexAdmin                # an existing publisher's unique name
+    publisher: ContosoAdmin                # an existing publisher's unique name
     prefix: ti                            # that publisher's customization prefix
   connectors:
     - logical_name: ifs-customer-orders
@@ -181,7 +181,7 @@ excludes and which never becomes canonical source. The platform is authoritative
 | `doctor [--for <capability>]` | no | inspect toolchain, config, auth, packages; PASS/WARN/FAIL/NOT REQUIRED |
 | `bootstrap [--for <capability>]` | local only, explicit | install/configure deterministic local prerequisites, each step confirmed |
 | `generate --package` | package files only | run generators for approved operations |
-| `validate --package [--target]` | no | static artifact checks; with `--target`, platform and runtime checks |
+| `deploy validate --package --target` | no (uploads the solution to the Power Apps checker) | static, platform (deployed state, export, solution checker) and, from Phase 12, runtime checks through the flow; records `runtime_validation` status (implemented, Phase 11) |
 | `deploy plan --package --target` | no | compute the diff between intent and deployed state (implemented, Phase 10) |
 | `deploy apply --package --target` | external, explicit | reconcile (create or update, never duplicate), then verify and report (implemented, Phase 10) |
 | `deploy status --package --target` | no | what is deployed, which versions, drift from source, manual steps left (implemented, Phase 10) |

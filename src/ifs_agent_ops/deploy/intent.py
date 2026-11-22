@@ -8,7 +8,7 @@ environment itself (environment variable values, connections). Example::
       solution:
         unique_name: IfsCustomerOrders        # stable once deployed
         display_name: IFS Customer Orders
-        publisher: TietexAdmin                # an existing publisher's unique name
+        publisher: ContosoAdmin                # an existing publisher's unique name
         prefix: ti                            # that publisher's customization prefix
       connectors:
         - logical_name: customer-order-handling   # one connector per IFS service

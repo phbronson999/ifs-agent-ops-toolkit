@@ -271,7 +271,7 @@ A **target** (machine-local, in `~/.ifs-agent-ops/targets/<package>/`, never com
 Sign in to Power Platform first with `pac auth create`.
 
 ```powershell
-ifs-agent-ops deploy init    --package ifs-customer-orders --publisher TietexAdmin --prefix ti
+ifs-agent-ops deploy init    --package ifs-customer-orders --publisher ContosoAdmin --prefix ti
 ifs-agent-ops deploy check   --package ifs-customer-orders
 ifs-agent-ops targets init   --package ifs-customer-orders --target dev      # pick from pac env list
 ifs-agent-ops deploy plan    --package ifs-customer-orders --target dev      # read-only: what would change
@@ -286,6 +286,24 @@ Connectors are always created inside the solution by import, which keeps the gat
 create` loses it). A person still creates each connection (gateway, IFS username and password) and picks it on
 the connection reference; `status` lists what is left. The toolkit deploys to the development environment only:
 promote with Power Platform Pipelines. `apply` also writes the deployment settings file next to the target.
+
+### Validating the deployed path
+
+```powershell
+ifs-agent-ops deploy validate --package ifs-customer-orders --target dev
+```
+
+`validate` checks three layers. **Static**: `deploy.yaml` and the generated connectors and skills. **Platform**:
+the environment matches `deploy.yaml` with no manual steps left, the solution exports (Pipelines needs that),
+and the Power Apps checker reports no critical or high issues (it uploads the solution file to Microsoft's
+checker service; `--skip-solution-check` skips it, but then nothing is marked validated). **Runtime**: calls
+through the deployed path go through a flow, so they arrive with Phase 12.
+
+It then sets each deployed capability's `runtime_validation.status`: **validated** when every requirement's
+latest finding passed (testing against IFS) and the deployed-path checks passed, **failed** when a finding
+failed, otherwise **conditional** (or **untested**). The reason is recorded under `runtime_validation.evaluation`;
+the change is a few lines in the capability file, for you to review and commit. Validation never changes an
+approval. Each run is also saved locally under `.ifs-agent-ops/runs/`.
 
 ## Design Principles
 

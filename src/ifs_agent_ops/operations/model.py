@@ -110,6 +110,22 @@ class RuntimeValidation(_Model):
     """
     status: RuntimeStatus = "untested"
     requirements: list[str] = Field(default_factory=list, description="What runtime validation must prove")
+    evaluation: Optional[Evaluation] = Field(None, description="How the status was last decided (set by "
+                                                                 "`validate`; excluded from approval hashes)")
+
+
+class Evaluation(_Model):
+    """Provenance of a runtime-validation status: when, against which target, and on what basis."""
+    evaluated_at: str
+    target: str = Field(description="Target name (the environment itself is machine-local, in the target file)")
+    basis: str = Field(description="Plain-language reason for the status (findings and deployed-path checks)")
+    run: str = Field(description="Local run record under <package>/.ifs-agent-ops/runs/")
+
+
+RuntimeValidation.model_rebuild()
+
+# Fields of runtime_validation that runtime validation sets: never part of what a reviewer approves.
+RUNTIME_RESULT_FIELDS = {"status", "evaluation"}
 
 
 class Approval(_Model):

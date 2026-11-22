@@ -142,7 +142,8 @@ def _read(intent: DeployIntent, desired: list[_Desired], pac: Pac) -> _State:
             row["value"] = (value or {}).get("value") or row.get("defaultvalue", "")
         variables[v.schema_name] = row
     references = {r.logical_name: _one(pac.fetch("connectionreference", ["connectionreferencelogicalname",
-                                                                         "connectorid", "connectionid"],
+                                                                         "connectorid", "connectionid",
+                                                                         "customconnectorid"],
                                                  {"connectionreferencelogicalname": r.logical_name}))
                   for r in pp.connection_references}
     ref_type = None
@@ -181,6 +182,14 @@ class _Work:
     references_after_connectors: bool = False
 
 
+def deployed_file(path: Path) -> bool:
+    """Generated connector files that are deployed (or keep deployed ids stable); report.md is documentation and
+    goes stale whenever a runtime-validation status is recorded."""
+    from ifs_agent_ops.generators.connector import REPORT_FILE
+
+    return path.name != REPORT_FILE
+
+
 def _check_ready(intent: Optional[DeployIntent], package: Package) -> DeployIntent:
     if intent is None or intent.power_platform is None:
         raise DeployError(f"{package.name} has no deploy.yaml with a power_platform section "
@@ -190,7 +199,7 @@ def _check_ready(intent: Optional[DeployIntent], package: Package) -> DeployInte
     if errors:
         raise DeployError("deploy.yaml is not ready:\n  " + "\n  ".join(errors))
     from ifs_agent_ops.generators.connector import generate
-    stale = [r for r in generate(package, check=True).results if r.action != "unchanged"]
+    stale = [r for r in generate(package, check=True).results if r.action != "unchanged" and deployed_file(r.path)]
     if stale:
         raise DeployError("generated connectors are not current; run: ifs-agent-ops connector generate --package "
                           f"{package.name}\n  " + "\n  ".join(f"{r.action} {r.path}" for r in stale))
@@ -220,6 +229,7 @@ def _work(intent: DeployIntent, package: Package, target: Target, pac: Pac) -> _
         add(Item("solution", pp.solution.unique_name, OK, f"version {st.solution.get('VersionNumber')}"))
 
     api_ids: dict[str, str] = {}
+    record_ids: dict[str, str] = {}
     for d in desired:
         row = st.connectors[d.part.name]
         if row is None:
@@ -227,6 +237,7 @@ def _work(intent: DeployIntent, package: Package, target: Target, pac: Pac) -> _
             w.connectors.append(d.part)
             continue
         api_ids[d.logical_name] = API_PREFIX + row["connectorinternalid"]
+        record_ids[d.logical_name] = row["connectorid"]
         d.part.connector_id = row["connectorid"]
         if "gateway" not in row.get("capabilities", "").lower():
             add(Item("connector", d.part.name, MANUAL, "exists without the on-premises data gateway, which cannot "
@@ -263,13 +274,21 @@ def _work(intent: DeployIntent, package: Package, target: Target, pac: Pac) -> _
     for r in pp.connection_references:
         row = st.references[r.logical_name]
         api_id = api_ids.get(r.connector)
+        record_id = record_ids.get(r.connector, "")
         display = connectors_by_logical[r.connector].display_name
-        if row is None or (api_id and row.get("connectorid") != api_id):
+        # pac env fetch shows a lookup as the linked record's name, so accept the connector's id or name
+        accepted = {record_id.lower(), connector_name(pp.solution.prefix, r.connector).lower()} - {""}
+        linked = row is not None and (row.get("customconnectorid") or "").lower() in accepted
+        stale = row is not None and api_id and (row.get("connectorid") != api_id or not linked)
+        if row is None or stale:
             action = CREATE if row is None else UPDATE
-            add(Item("connection reference", r.logical_name, action, f"for {display}"
+            why = "" if row is None or row.get("connectorid") == api_id else ", connector changed"
+            if row is not None and not linked:
+                why += ", link to the custom connector missing (the solution cannot be exported without it)"
+            add(Item("connection reference", r.logical_name, action, f"for {display}{why}"
                      + ("" if api_id else " (after the connector is created)")))
             if api_id:
-                w.references.append(sz.ReferencePart(r.logical_name, r.display_name, api_id))
+                w.references.append(sz.ReferencePart(r.logical_name, r.display_name, api_id, record_id))
             else:
                 w.references_after_connectors = True
         elif not st.solution or row["connectionreferenceid"].lower() not in st.members:
