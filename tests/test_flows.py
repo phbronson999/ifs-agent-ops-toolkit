@@ -112,6 +112,8 @@ def test_submit_steps_bindings_and_response(flows_pkg):
     assert loop["type"] == "Foreach" and loop["runtimeConfiguration"] == {"concurrency": {"repetitions": 1}}
     line = acts["Create_Line"]
     assert line["inputs"]["host"]["operationId"] == ids[USED[3]]["operation_id"]
+    assert line["inputs"]["retryPolicy"] == {"type": "none"} and line["limit"] == {"timeout": "PT60S"}
+    assert acts["Find"]["inputs"]["retryPolicy"] == {"type": "fixed", "count": 3, "interval": "PT5S"}
     assert line["inputs"]["parameters"]["OrderNo"] == "@variables('create_header')?['OrderNo']"
     body = acts["Body_Create_Line"]["inputs"]
     assert body["LineNo"] == "@items('For_Each_Lines')?['line_no']" and body["Qty"] == "@items('For_Each_Lines')?['qty']"
@@ -141,7 +143,8 @@ def test_prepare_asks_questions_and_writes_nothing(flows_pkg):
     assert not any(a.get("type") == "OpenApiConnection" and "create" in a["inputs"]["host"]["operationId"]
                    for a in acts.values())
     find = acts["Find"]["inputs"]["parameters"]
-    assert find["$filter"] == "Objstate eq IfsApp.OrderHandling.OrderState'Planned'" and find["$top"] == 50
+    # tabs, not spaces: a space in $filter breaks requests through the gateway
+    assert find["$filter"] == "Objstate\teq\tIfsApp.OrderHandling.OrderState'Planned'" and find["$top"] == 50
     assert set(acts["Respond"]["inputs"]["body"]) >= {"warnings", "ok", "error"}
     assert "proposal" not in acts["Respond"]["inputs"]["body"]      # BASE's prepare returns nothing else
 
@@ -168,8 +171,8 @@ def test_match_modes_and_structured_warnings(flows_pkg):
     assert generate(flows_pkg).ok
     prepare = _actions(flows_pkg, "prepare")
     flt = prepare["Find"]["inputs"]["parameters"]["$filter"]
-    assert flt.startswith("@concat('Objstate ne IfsApp.OrderHandling.OrderState''Planned'' and ', ")
-    assert "contains(tolower(CustomerNo)," in flt and "toLower(triggerBody()?['customer_no'])" in flt
+    assert flt.startswith("@concat('Objstate\tne\tIfsApp.OrderHandling.OrderState''Planned''\tand\t', ")
+    assert "contains(tolower(CustomerNo)," in flt and "toLower(trim(coalesce(triggerBody()?['customer_no'], '')))" in flt
     # the lookup runs only when its search value is supplied
     assert "not(empty(coalesce(triggerBody()?['customer_no'], '')))" in prepare["If_Find"]["expression"]
     submit = _actions(flows_pkg, "submit")
@@ -189,7 +192,7 @@ def test_word_search(flows_pkg):
                  "Find_Any_Word", "Reset_find_rows", "Reset_find_kept"):
         assert name in acts, name
     assert acts["Find_Probe"]["inputs"]["parameters"]["$top"] == 1
-    assert "' or '" in acts["Find_Any_Word"]["inputs"]["parameters"]["$filter"]
+    assert "'\tor\t'" in acts["Find_Any_Word"]["inputs"]["parameters"]["$filter"]
     assert acts["Set_find"]["inputs"]["value"] == "@setProperty(json('{}'), 'value', variables('find_rows'))"
     assert "word search" in (flow_dir(flows_pkg, "create-order") / "report.md").read_text(encoding="utf-8")
 
@@ -381,3 +384,74 @@ def test_targets_validate_trigger_users(deploy_setup):
     package, *_ = deploy_setup
     with pytest.raises(tg.TargetError, match="flow_trigger_users"):
         _users(package, ["not-an-email"])
+
+
+def test_filters_never_contain_spaces():
+    """A space in $filter breaks requests through the connector and gateway; tabs work (DEV 2026-11-22)."""
+    from ifs_agent_ops.generators.flow.build import FlowBuilder
+    from ifs_agent_ops.generators.flow.expr import V as Val
+
+    assert FlowBuilder.contains_words("Name", Val.of("Harco Americas")).const == \
+        "contains(tolower(Name),'harco')\tand\tcontains(tolower(Name),'americas')"
+    expr = FlowBuilder.contains_words("Name", Val.e("x")).expr
+    assert "replace(" in expr and "' ', ''')\tand\tcontains(tolower(Name),'''" in expr
+
+
+# ── runtime cases (12c) ──────────────────────────────────────────────────────
+
+PREPARE_ANSWER = {
+    "ok": True, "error": None, "questions": [], "warnings": [{"source": "step", "step": "find", "meaning": "m"}],
+    "proposal": {"results": {"find": {"value": [{"OrderNo": "A1"}]}},
+                 "lines": [{"line": {}, "results": {"check": {"value": [{"CatalogNo": "900664"}, {"CatalogNo": "2"}]}}}]}}
+
+
+def test_runtime_expectations():
+    from ifs_agent_ops.deploy.runtime import check
+
+    ok = {"ok": True, "questions": [], "warnings": ["find"], "matches": {"find": 1},
+          "lines": [{"check": {"includes": {"CatalogNo": "900664"}}}]}
+    assert check(ok, PREPARE_ANSWER) == []
+    bad = {"ok": True, "questions": ["q"], "warnings": [], "matches": {"find": "none"},
+           "lines": [{"check": 1}, {"check": ">0"}]}
+    problems = check(bad, PREPARE_ANSWER)
+    assert len(problems) == 5 and "find: 1 row(s), expected none" in problems
+    assert check({"outputs": {"order_no": "present", "line_numbers": {"length": 2}}},
+                 {"outputs": {"order_no": "C1", "line_numbers": [1]}}) == ["output line_numbers has 1 entries, expected 2"]
+
+
+def test_runtime_cases_run_reads_and_hold_writes(flows_pkg):
+    from ifs_agent_ops.deploy.runtime import cases_path, load_cases, run_cases
+
+    path = cases_path(flows_pkg, "create-order")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump({"capability": "create-order", "cases": [
+        {"name": "lookups", "action": "prepare", "inputs": {"customer_no": "1"}, "expect": {"ok": True,
+                                                                                          "matches": {"find": 1}}},
+        {"name": "create", "action": "submit", "inputs": {"customer_no": "1"}, "expect": {"ok": True}}]}),
+        encoding="utf-8")
+    calls = []
+
+    def caller(url, body):
+        calls.append((url, body))
+        return PREPARE_ANSWER if "prepare" in url else {"ok": True}
+
+    triggers = {"CreateOrder_Prepare": "https://flow.example/prepare", "CreateOrder_Submit": "https://flow.example/submit"}
+    cases = load_cases(flows_pkg, "create-order")
+    held = run_cases("create-order", cases, triggers, {"submit"}, allow_writes=False, caller=caller)
+    assert [(r.case, r.status) for r in held] == [("lookups", "PASS"), ("create", "NOT RUN")]
+    assert calls == [("https://flow.example/prepare", {"customer_no": "1"})]
+    allowed = run_cases("create-order", cases, triggers, {"submit"}, allow_writes=True, caller=caller)
+    assert [r.status for r in allowed] == ["PASS", "PASS"]
+    assert calls[-1] == ("https://flow.example/submit", {"customer_no": "1", "confirmed": True})
+    missing = run_cases("create-order", cases, {}, {"submit"}, allow_writes=False, caller=caller)
+    assert missing[0].status == "FAIL" and "no trigger URL" in missing[0].detail
+
+
+def test_batch_url_escaping():
+    """IFS's batch request-line parser rejects ':' (date-times); spaces cannot travel in a URL."""
+    from ifs_agent_ops.generators.flow.build import FlowBuilder
+    from ifs_agent_ops.generators.flow.expr import V as Val
+
+    assert FlowBuilder.url_safe(Val.of("2026-12-15T00:00:00Z")).const == "2026-12-15T00%3A00%3A00Z"
+    assert FlowBuilder.url_safe(Val.of("'a b%'")).const == "'a%20b%25'"
+    assert FlowBuilder.url_safe(Val.e("x")).expr.startswith("replace(replace(replace(replace(replace(string(x)")

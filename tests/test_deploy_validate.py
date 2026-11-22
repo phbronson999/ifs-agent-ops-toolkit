@@ -66,7 +66,7 @@ def test_green_deployed_path_and_passed_findings_validate_the_capability(deploye
     assert statuses["solution checker"] == dv.WARN
     assert "expected: the host is @environmentVariables" in next(
         c.detail for c in run.checks if c.name == "checker connector-validate-swagger")
-    assert statuses["calls through the deployed path"] == dv.NOT_RUN
+    assert statuses["calls through the deployed flows"] == dv.NOT_RUN     # deploy.yaml lists no flows
 
     [result] = run.capabilities
     assert (result.previous, result.status, result.recorded) == ("untested", "validated", True)

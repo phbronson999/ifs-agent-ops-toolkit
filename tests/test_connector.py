@@ -332,18 +332,22 @@ def test_previous_single_connector_folder_is_removed_only_if_generated(pinned):
     assert generate(pinned).ok and (legacy / DEFINITION_FILE).exists()
 
 
-def test_parameter_aliases_get_a_policy_because_flows_cannot_set_at_names():
-    from types import SimpleNamespace
+def test_batch_operation_for_parameter_aliases():
+    """Flows cannot set @-named parameters and policies do not apply through the gateway: alias calls go via $batch."""
+    from ifs_agent_ops.generators.connector import BATCH_BOUNDARY, _properties, batch_operation
 
-    from ifs_agent_ops.generators.connector import _properties, alias_policies
+    op = batch_operation()["post"]
+    assert op["operationId"] == "batch" and op["consumes"] == ["multipart/mixed"]
+    assert [p["name"] for p in op["parameters"]] == ["Content-Type", "batch"]
+    assert BATCH_BOUNDARY in op["parameters"][0]["default"]
+    assert _properties()["properties"]["policyTemplateInstances"] == []
 
-    entries = [SimpleNamespace(aliases=["Rec"], operation_id="function_A"),
-               SimpleNamespace(aliases=["Rec"], operation_id="function_B"), SimpleNamespace(aliases=[],
-                                                                                          operation_id="x")]
-    [policy] = alias_policies(entries)
-    assert policy["templateId"] == "setqueryparameter"
-    assert policy["parameters"] == {"x-ms-apimTemplateParameter.name": "@Rec",
-                                    "x-ms-apimTemplateParameter.value": "@queryParameters('Rec')",
-                                    "x-ms-apimTemplateParameter.existsAction": "override",
-                                    "x-ms-apimTemplate-operationName": ["function_A", "function_B"]}
-    assert _properties([policy])["properties"]["policyTemplateInstances"] == [policy]
+
+def test_error_responses_are_not_schema_checked():
+    from ifs_agent_ops.generators.connector import _unchecked_errors
+
+    op = {"responses": {"200": {"$ref": "#/responses/X"}, "500": {"$ref": "#/responses/error"},
+                        "403": {"description": "Forbidden", "schema": {"type": "object"}}}}
+    _unchecked_errors(op)
+    assert op["responses"] == {"200": {"$ref": "#/responses/X"}, "500": {"description": "IFS error"},
+                               "403": {"description": "Forbidden"}}
