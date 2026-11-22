@@ -21,21 +21,44 @@ from ifs_agent_ops.operations.model import RUNTIME_RESULT_FIELDS, SCHEMA_VERSION
 InputType = Literal["string", "decimal", "integer", "boolean", "date", "datetime", "list"]
 InputSource = Literal["agent", "document", "user"]
 Role = Literal["lookup", "validation", "defaults", "calculation", "write"]
-_SOURCE_KINDS = ("input", "item", "step", "config", "derived", "fixed")
+_SOURCE_KINDS = ("input", "item", "step", "config", "record", "derived", "fixed")
 
 
 class _M(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class RecordSource(_M):
+    """A composite record built from earlier steps (executable, unlike a prose ``derived`` value).
+
+    Either ``same_as`` (the record another step sent for the same target), or: the response records of
+    ``steps`` overlaid in order (a later null does not overwrite an earlier value), restricted to ``keep``
+    (plus ``keep_if_present`` members when present), then ``set`` members (any source, including null)."""
+    steps: list[str] = Field(default_factory=list, description="Earlier steps whose response records are overlaid")
+    keep: list[str] = Field(default_factory=list, description="Members the record carries")
+    keep_if_present: list[str] = Field(default_factory=list, description="Members carried only when present")
+    set: dict[str, "Source"] = Field(default_factory=dict, description="Members set after the overlay")
+    same_as: Optional[str] = Field(None, description="Send the record that step sent for the same target")
+
+    @model_validator(mode="after")
+    def _shape(self):
+        if self.same_as is not None:
+            if self.steps or self.keep or self.keep_if_present or self.set:
+                raise ValueError("a record with same_as takes nothing else")
+        elif not self.keep:
+            raise ValueError("a record needs keep (the members it carries) or same_as")
+        return self
+
+
 class Source(_M):
-    """Where one value comes from. Exactly one of input/item/step/config/derived/fixed."""
+    """Where one value comes from. Exactly one of input/item/step/config/record/derived/fixed."""
     input: Optional[str] = None
     item: Optional[str] = None
     step: Optional[str] = None
     field: Optional[str] = Field(None, description="Response field of `step`")
     config: Optional[str] = None
-    derived: Optional[str] = Field(None, description="Expression over other values (documented, not evaluated yet)")
+    record: Optional[RecordSource] = Field(None, description="Composite record built from earlier steps")
+    derived: Optional[str] = Field(None, description="Prose description of a value; not executable (use record)")
     fixed: Any = None
     transform: Optional[Literal["date", "datetime", "string", "number", "local-datetime"]] = None
     note: Optional[str] = None
@@ -52,6 +75,9 @@ class Source(_M):
     @property
     def kind(self) -> str:
         return next(k for k in _SOURCE_KINDS if k in self.model_fields_set)
+
+
+RecordSource.model_rebuild()
 
 
 class ConfigValue(_M):

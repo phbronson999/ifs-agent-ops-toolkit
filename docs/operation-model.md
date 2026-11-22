@@ -187,9 +187,24 @@ Steps that appear in no action's `steps` list are internal support and are never
 own. An action is the only externally exposed unit.
 
 Value sources: `input` (agent, document or user), `item` (a field of a list input), `step`
-(an earlier step's response field), `config` (package default), `derived` (an expression over
-other values), `fixed` (a literal), or unbound, which means omitted. A value that is neither
-bound nor an input is **not** agent-visible.
+(an earlier step's response field), `config` (package default), `record` (a composite record
+built from earlier steps: their response records overlaid in order, where a later null does not
+overwrite; restricted to `keep` plus `keep_if_present`; then `set` members from any source; or
+`same_as: <step>`, the record another step sent for the same target), `derived` (a prose
+description; a generated flow cannot execute it, so the validator warns and asks for a `record`),
+`fixed` (a literal), or unbound, which means omitted. A value that is neither bound nor an input
+is **not** agent-visible.
+
+```yaml
+body.ValidationRec:
+  record:
+    steps: [line-defaults, catalog-defaults]
+    keep: [AddrFlag, AvailableQty, CatalogNo, ...]
+    keep_if_present: [CustomerLevel, PriceSourceId]
+    set:
+      DeliverToCustomerNo: {step: line-defaults, field: CustomerNo}
+      BuyQtyDue: {item: quantity}
+```
 
 Every question a generator needs answered maps to a field:
 
@@ -200,7 +215,7 @@ Every question a generator needs answered maps to a field:
 | Which operations does the connector need? | every operation referenced by an approved capability's steps |
 | Which inputs may the agent supply? | `inputs` (`source: agent` or `document`) |
 | Which are required from the user/PDF? | `inputs` with `required: true`, by `source` |
-| From earlier outputs / defaults / derived / fixed? | step `bindings` (`step` / `config` / `derived` / `fixed`) |
+| From earlier outputs / defaults / composite records / fixed? | step `bindings` (`step` / `config` / `record` / `fixed`) |
 | Which need lookup or validation? | `inputs[].resolve` and `role: lookup|validation` steps |
 | Which need user confirmation? | `inputs[].confirm`, `actions[].requires_confirmation` and `actions[].confirm` (state shown before the write) |
 | Which decisions require a user question? | `questions` (ambiguous lookups, missing required inputs) |
