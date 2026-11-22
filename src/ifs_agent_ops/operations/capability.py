@@ -16,7 +16,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ifs_agent_ops.operations.model import SCHEMA_VERSION, RuntimeValidation, Status
+from ifs_agent_ops.operations.model import RUNTIME_RESULT_FIELDS, SCHEMA_VERSION, RuntimeValidation, Status
 
 InputType = Literal["string", "decimal", "integer", "boolean", "date", "datetime", "list"]
 InputSource = Literal["agent", "document", "user"]
@@ -171,7 +171,7 @@ class Capability(_M):
     def content_hash(self) -> str:
         """Hash of everything a reviewer approves (status, approval and runtime results excluded)."""
         data = self.model_dump(mode="json", exclude={"status": True, "approval": True,
-                                                     "runtime_validation": {"status"}})
+                                                     "runtime_validation": RUNTIME_RESULT_FIELDS})
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
     def all_inputs(self) -> dict[str, Input]:

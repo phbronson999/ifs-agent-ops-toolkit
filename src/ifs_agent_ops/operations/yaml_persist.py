@@ -85,3 +85,51 @@ def persist_approval(path: Path, model: BaseModel, full_write: Callable[[], Path
         return "rewritten"
     path.write_text(text, encoding="utf-8", newline="\n")
     return "patched"
+
+
+def _set_runtime_result(text: str, status: str, evaluation: Optional[dict]) -> Optional[str]:
+    """Inside the top-level ``runtime_validation`` entry: replace ``status`` and put ``evaluation`` right after
+    it. The requirements (long hand-written lines) are left untouched. None when the layout is unexpected."""
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    span = _span(lines, "runtime_validation")
+    if span is None:
+        return None
+    start, end = span
+    at = next((i for i in range(start + 1, end) if re.match(r"^  status:(\s|$)", lines[i])), None)
+    if at is None:
+        return None
+    lines[at] = f"  status: {status}\n"
+    ev = next((i for i in range(start + 1, end) if re.match(r"^  evaluation:(\s|$)", lines[i])), None)
+    if ev is not None:
+        stop = ev + 1
+        while stop < end and (not lines[stop].strip() or lines[stop].startswith("    ")):
+            stop += 1
+        del lines[ev:stop]
+        if ev < at:
+            at -= stop - ev
+    if evaluation is not None:
+        block = ["  " + line for line in _render("evaluation", evaluation)]
+        lines[at + 1:at + 1] = block
+    return "".join(lines)
+
+
+def persist_runtime_result(path: Path, model: BaseModel, full_write: Callable[[], Path]) -> str:
+    """Write ``model.runtime_validation``'s status and evaluation into ``path`` with a minimal text change.
+
+    Returns "patched" or "rewritten" (fallback through ``full_write`` when the patched text would not parse
+    back to exactly ``model``)."""
+    rv = model.runtime_validation
+    evaluation = rv.evaluation.model_dump(mode="json") if rv.evaluation is not None else None
+    text = _set_runtime_result(path.read_text(encoding="utf-8"), rv.status, evaluation)
+    try:
+        same = text is not None and type(model).model_validate(yaml.safe_load(text)).model_dump(mode="json") \
+            == model.model_dump(mode="json")
+    except Exception:
+        same = False
+    if not same:
+        full_write()
+        return "rewritten"
+    path.write_text(text, encoding="utf-8", newline="\n")
+    return "patched"

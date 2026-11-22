@@ -237,6 +237,6 @@ Validation rules for capabilities (Phase 7b):
 3. **Function parameter quoting follows the declared type.** `TaxCode=null` and `TaxCode='T1'`
    are one parameter of one operation.
 4. **Organization-specific business configuration in IFS metadata belongs in the organization's
-   package.** An example is a configured layout name such as `TietexsamplesDOTnlbl` as an enum
+   package.** An example is a configured layout name such as `ContososamplesDOTnlbl` as an enum
    member. Credentials, hosts, realms, internal network identifiers and secrets remain the
    things that are removed.

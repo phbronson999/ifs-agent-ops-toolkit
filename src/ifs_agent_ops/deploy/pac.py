@@ -109,6 +109,27 @@ class Pac:
             props = json.loads((folder / "apiProperties.json").read_text(encoding="utf-8-sig"))
         return definition, props.get("properties", {})
 
+    def export_solution(self, name: str, path: Path) -> Path:
+        """Export the unmanaged solution (read-only for the environment)."""
+        self.run(["solution", "export", "--name", name, "--path", str(Path(path).resolve()), "--overwrite",
+                  *self._env()])
+        return path
+
+    def check_solution(self, zip_path: Path, out_dir: Path) -> dict:
+        """Run the Power Apps checker on a solution file (it uploads the file to Microsoft's checker service for
+        this tenant) and return the SARIF report."""
+        import zipfile
+
+        out_dir = Path(out_dir).resolve()
+        self.run(["solution", "check", "--path", str(Path(zip_path).resolve()), "--outputDirectory", str(out_dir),
+                  *self._env()])
+        reports = sorted(out_dir.glob("*.zip"))
+        if not reports:
+            raise PacError("pac solution check produced no report")
+        with zipfile.ZipFile(reports[-1]) as z:
+            name = next(n for n in z.namelist() if n.endswith(".sarif"))
+            return json.loads(z.read(name).decode("utf-8-sig"))
+
     # ── writes ───────────────────────────────────────────────────────────────
     def import_solution(self, zip_path: Path) -> str:
         return self.run(["solution", "import", "--path", str(zip_path), *self._env()])

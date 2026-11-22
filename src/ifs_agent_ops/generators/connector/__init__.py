@@ -223,6 +223,7 @@ def _build_one(package: Package, projection: str, selected: list[Selected], caps
     for param in components["parameters"].values():
         stats["links_removed"] += annotate.strip_links(param)
         stats["arrays_converted"] += compat.array_query_to_string(param)
+        param.setdefault("x-ms-summary", param.get("name", "").lstrip("$@"))  # solution checker: required
     kept, kept_tags, dangling, dropped = prune.prune(paths, components, tags)
     if dangling:
         raise GenerationRefused("dangling $ref in the pinned $openapi: " + ", ".join(sorted(set(dangling))))

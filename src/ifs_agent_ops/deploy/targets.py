@@ -3,7 +3,7 @@
 ``~/.ifs-agent-ops/targets/<package>/<target>.yaml``::
 
     power_platform:
-      environment: TietexAdminTest                       # picked from `pac env list`
+      environment: ContosoDev                       # picked from `pac env list`
       environment_id: 00000000-0000-0000-0000-000000000000
       environment_url: https://example.crm.dynamics.com
     environment_variables:                               # optional, non-secret values; used when a variable

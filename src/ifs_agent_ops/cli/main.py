@@ -604,7 +604,8 @@ def cmd_connector(args: argparse.Namespace) -> int:
             print(f"{p}: {len(b.entries)} operations; apiDefinition {b.size.bytes:,} of {b.size.limit:,} bytes "
                   f"({100 * b.size.bytes / b.size.limit:.1f}%)")
         if gen.built:
-            print("Not deployment-validated until Phase 11.")
+            print("Check the deployed path with: ifs-agent-ops deploy validate --package "
+                  f"{package.name} --target <target>")
     stale = args.check and any(r.action.startswith("would-") for r in gen.results)
     return 1 if not gen.ok or stale else 0
 
@@ -639,6 +640,8 @@ def cmd_deploy(args: argparse.Namespace) -> int:
         return 0
     if args.deploy_command in ("plan", "apply", "status"):
         return _deploy_target(args, package)
+    if args.deploy_command == "validate":
+        return _deploy_validate(args, package)
     # check
     try:
         intent = di.load_intent(package)
@@ -714,6 +717,38 @@ def _deploy_target(args: argparse.Namespace, package) -> int:
         for n, step in enumerate(steps, 1):
             print(f"  {n}. {step}")
     return 0
+
+
+def _deploy_validate(args: argparse.Namespace, package) -> int:
+    """Deployed-path validation, then the runtime-validation status of the deployed capabilities."""
+    import json
+    from dataclasses import asdict
+
+    from ifs_agent_ops.deploy import validate as dv
+    from ifs_agent_ops.deploy.intent import IntentError, load_intent
+    from ifs_agent_ops.deploy.targets import TargetError, load_target
+
+    try:
+        target = load_target(package.name, args.target)
+        intent = load_intent(package)
+        run = dv.validate(intent, package, target, solution_check=not args.skip_solution_check,
+                          record=not args.no_record)
+    except (TargetError, IntentError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        data = asdict(run)
+        data["path"] = str(run.path)
+        data["deployed_ok"] = run.deployed_ok
+        print(json.dumps(data, indent=2))
+    else:
+        print("\n".join(dv.describe(run)))
+        print(f"\nRun record (local): {run.path}")
+        if any(c.recorded and c.status != c.previous for c in run.capabilities):
+            print("The capability files changed (runtime_validation): review and commit them with the package; "
+                  f"regenerate skills and connectors to show the status (ifs-agent-ops skills generate --package "
+                  f"{package.name}; ifs-agent-ops connector generate --package {package.name}).")
+    return 0 if run.deployed_ok else 1
 
 
 def cmd_targets(args: argparse.Namespace) -> int:
@@ -1055,7 +1090,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                          ).add_subparsers(dest="deploy_command", required=True)
     d_init = dep.add_parser("init", help="write a first deploy.yaml for the package")
     d_init.add_argument("--package", required=True)
-    d_init.add_argument("--publisher", required=True, help="existing publisher unique name (e.g. TietexAdmin)")
+    d_init.add_argument("--publisher", required=True, help="existing publisher unique name (e.g. ContosoAdmin)")
     d_init.add_argument("--prefix", required=True, help="that publisher's customization prefix (e.g. ti)")
     d_init.add_argument("--host-variable", help="environment variable holding the IFS host (default <prefix>_IFSDomain)")
     d_check = dep.add_parser("check", help="validate deploy.yaml against itself and the package (read-only)")
@@ -1071,6 +1106,14 @@ def main(argv: Optional[list[str]] = None) -> int:
             sp.add_argument("--yes", action="store_true", help="do not ask for confirmation")
         else:
             sp.add_argument("--json", action="store_true")
+    d_val = dep.add_parser("validate", help="deployed-path validation (static, platform incl. solution checker; "
+                                            "runtime via the Phase 12 flow), then record runtime_validation status")
+    d_val.add_argument("--package", required=True)
+    d_val.add_argument("--target", required=True)
+    d_val.add_argument("--skip-solution-check", action="store_true",
+                       help="do not upload the solution to the Power Apps checker")
+    d_val.add_argument("--no-record", action="store_true", help="report the status without writing it")
+    d_val.add_argument("--json", action="store_true")
 
     tgt = sub.add_parser("targets", help="deployment targets (machine-local, never committed)"
                          ).add_subparsers(dest="targets_command", required=True)

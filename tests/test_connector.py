@@ -107,6 +107,7 @@ def test_connector_contains_only_capability_operations_with_their_dependencies(p
     # C7: closure kept, everything else dropped
     assert sorted(doc["definitions"]) == ["CheckResult", "Line", "Order", "Order-Insert"]
     assert sorted(doc["parameters"]) == ["top"] and "UnusedResponse" not in doc["responses"]
+    assert doc["parameters"]["top"]["x-ms-summary"] == "top"   # solution checker requires it on shared parameters
     assert [t["name"] for t in doc["tags"]] == ["OrderSet", "Functions"]
     # the pinned spec's IFS OAuth schemes are dropped; the connection is Basic auth through the gateway
     assert doc["securityDefinitions"] == {"basic-auth": {"type": "basic"}}

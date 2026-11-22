@@ -55,6 +55,7 @@ class ReferencePart:
     logical_name: str
     display_name: str
     connector_api_id: str     # /providers/Microsoft.PowerApps/apis/<connector internal id>
+    custom_connector_id: str = ""   # the connector record's id; without it the solution cannot be exported
 
 
 @dataclass
@@ -119,7 +120,7 @@ def customizations_xml(sol: SolutionFile) -> str:
     references = "".join(f"""
     <connectionreference connectionreferencelogicalname={quoteattr(r.logical_name)}>
       <connectionreferencedisplayname>{escape(r.display_name)}</connectionreferencedisplayname>
-      <connectorid>{escape(r.connector_api_id)}</connectorid>
+      <connectorid>{escape(r.connector_api_id)}</connectorid>{_custom_connector(r)}
       <iscustomizable>1</iscustomizable>
       <promptingbehavior>0</promptingbehavior>
       <statecode>0</statecode>
@@ -135,6 +136,13 @@ def customizations_xml(sol: SolutionFile) -> str:
   <Languages><Language>1033</Language></Languages>
 </ImportExportXml>
 """
+
+
+def _custom_connector(r: ReferencePart) -> str:
+    if not r.custom_connector_id:
+        return ""
+    return (f"\n      <customconnectorid>\n        <connectorid>{escape(r.custom_connector_id)}</connectorid>"
+            "\n      </customconnectorid>")
 
 
 def variable_definition_xml(v: VariablePart) -> str:

@@ -24,7 +24,7 @@ class FakeEnvironment:
 
     def __init__(self):
         self.solutions = {}
-        self.publisher = {"uniquename": "TietexAdmin", "friendlyname": "TietexAdmin", "customizationprefix": "ti",
+        self.publisher = {"uniquename": "ContosoAdmin", "friendlyname": "ContosoAdmin", "customizationprefix": "ti",
                           "customizationoptionvalueprefix": "12,677", "publisherid": "p-1"}
         self.connectors = {}        # name -> row (+ definition, params)
         self.variables = {}         # schema -> row
@@ -88,9 +88,11 @@ class FakeEnvironment:
         for logical, block in re.findall(r'connectionreferencelogicalname="(.*?)">(.*?)</connectionreference>',
                                          cust, re.DOTALL):
             connector = re.search(r"<connectorid>(.*?)</connectorid>", block).group(1)
+            custom = re.search(r"<customconnectorid>\s*<connectorid>(.*?)</connectorid>", block)
             row = self.references.setdefault(logical, {"connectionreferencelogicalname": logical,
                                                        "connectionreferenceid": f"ref-{logical}", "connectionid": ""})
             row["connectorid"] = connector       # not a root component: must be added to the solution
+            row["customconnectorid"] = custom.group(1) if custom else ""
         for path_name, text in files.items():
             m = re.match(r"environmentvariabledefinitions/(\w+)/environmentvariabledefinition.xml", path_name)
             if m:
@@ -135,7 +137,7 @@ def setup(pinned, tmp_path, monkeypatch):  # noqa: F811
 
     monkeypatch.setenv("IFS_AGENT_OPS_HOME", str(tmp_path / "home"))
     assert generate(pinned).ok
-    intent = parse(yaml.safe_load(scaffold(pinned, "TietexAdmin", "ti")), pinned.root / "deploy.yaml")
+    intent = parse(yaml.safe_load(scaffold(pinned, "ContosoAdmin", "ti")), pinned.root / "deploy.yaml")
     tg.write_target(pinned.name, "dev", {"FriendlyName": "Dev", "EnvironmentIdentifier": {"Id": "env-1"},
                                          "EnvironmentUrl": "https://dev.example/"}, {"ti_IFSDomain": "ifs.example"})
     target = tg.load_target(pinned.name, "dev")
@@ -159,6 +161,7 @@ def test_first_deploy_creates_everything_then_second_is_a_no_op(setup):
     assert connector["definition"]["basePath"].endswith("/OrderHandling.svc")
     assert env.references["ti_IfsOrderHandling"]["connectorid"] == \
         "/providers/Microsoft.PowerApps/apis/shared_ti_ifsorderhandling-5fabc"
+    assert env.references["ti_IfsOrderHandling"]["customconnectorid"] == connector["connectorid"]
     assert env.values["var-ti_IFSDomain"] == "ifs.example"
     # only the connection is left for a person
     assert [i.kind for i in result.after.manual] == ["connection"]
@@ -225,6 +228,10 @@ def test_stale_generated_connector_is_refused(setup):
     package, intent, target, _, pac = setup
     from ifs_agent_ops.generators.connector import DEFINITION_FILE, connector_dir
 
+    from ifs_agent_ops.generators.connector import REPORT_FILE
+
+    (connector_dir(package, "OrderHandling") / REPORT_FILE).write_text("stale", encoding="utf-8")
+    ppa.plan(intent, package, target, pac)          # the report is not deployed: never blocks
     (connector_dir(package, "OrderHandling") / DEFINITION_FILE).write_text("{}", encoding="utf-8")
     with pytest.raises(ppa.DeployError, match="not current"):
         ppa.plan(intent, package, target, pac)
@@ -282,7 +289,7 @@ def test_doctor_checks_targets(setup, monkeypatch):
     from ifs_agent_ops import doctor
 
     package, _, target, _, _ = setup
-    (package.root / "deploy.yaml").write_text(scaffold(package, "TietexAdmin", "ti"), encoding="utf-8")
+    (package.root / "deploy.yaml").write_text(scaffold(package, "ContosoAdmin", "ti"), encoding="utf-8")
     monkeypatch.setenv("IFS_AGENT_OPS_PACKAGES", str(package.root))
     listing = json.dumps([{"FriendlyName": "Dev", "EnvironmentIdentifier": {"Id": "env-1"}}])
     monkeypatch.setattr(doctor, "_run", lambda cmd, timeout=20.0: listing if cmd[:3] == ["pac", "env", "list"] else None)
@@ -293,3 +300,17 @@ def test_doctor_checks_targets(setup, monkeypatch):
     target.path.unlink()
     [check] = doctor._deployment_targets("power-platform", True)
     assert check.status == doctor.WARN and "targets init" in check.fix
+
+
+def test_reference_without_custom_connector_link_is_updated(setup):
+    package, intent, target, env, pac = setup
+    ppa.apply(intent, package, target, pac)
+    env.references["ti_IfsOrderHandling"]["customconnectorid"] = ""     # as Phase 10 v1 created it
+    [item] = ppa.plan(intent, package, target, pac).changes
+    assert (item.kind, item.action) == ("connection reference", "update") and "cannot be exported" in item.detail
+    ppa.apply(intent, package, target, pac)
+    connector_id = env.connectors["ti_ifsorderhandling"]["connectorid"]
+    assert env.references["ti_IfsOrderHandling"]["customconnectorid"] == connector_id
+    assert ppa.plan(intent, package, target, pac).changes == []
+    env.references["ti_IfsOrderHandling"]["customconnectorid"] = "ti_ifsorderhandling"   # pac shows the name
+    assert ppa.plan(intent, package, target, pac).changes == []
