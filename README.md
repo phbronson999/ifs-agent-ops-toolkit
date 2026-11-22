@@ -10,6 +10,8 @@ The toolkit combines observed IFS network activity with IFS API metadata to buil
 
 The goal is to define an IFS operation once and use that same definition throughout the agent execution path.
 
+**[See it end to end](https://phbronson999.github.io/ifs-agent-ops-toolkit/)**: a step-by-step walk-through from recording a task in IFS to an order created from Copilot (source: [docs/index.html](docs/index.html)).
+
 ## Architecture
 
 The toolkit separates development tooling from the packages it produces, and generation from deployment.
