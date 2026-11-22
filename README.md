@@ -66,7 +66,7 @@ ifs-customer-orders/
 ├── capabilities/        curated capabilities: agent-facing inputs, actions and bindings (planned, Phase 7b)
 ├── agent/               skills, instructions, agent/plugin source
 ├── power-platform/      connector and flow source artifacts
-└── deploy.yaml          deployment intent: logical names, no secrets or environment IDs (planned)
+└── deploy.yaml          deployment intent: logical names, no secrets, hosts or environment IDs
 ```
 
 ## Operation Model
@@ -252,6 +252,20 @@ ifs-agent-ops connector generate --package ifs-customer-orders   # Power Platfor
 ```
 
 `--check` reports what would change without writing anything.
+
+The connector uses **Basic authentication through the on-premises data gateway**. The IFS username,
+password and gateway are chosen when someone creates the connection; they are never stored in the package.
+
+### Deployment intent
+
+`deploy.yaml` declares what should exist in Power Platform, by logical name only: the solution and its
+publisher, the connector, the environment variable that holds the IFS host (the deployed connector's host
+becomes `@environmentVariables("<name>")`), and the connection reference.
+
+```powershell
+ifs-agent-ops deploy init  --package ifs-customer-orders --publisher TietexAdmin --prefix ti
+ifs-agent-ops deploy check --package ifs-customer-orders
+```
 
 In the TUI you approve from a confirmation dialog: review it and press Enter. The CLI approve commands only
 run in an interactive terminal and ask you to type back a one-time code shown on screen, because an agent could

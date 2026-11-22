@@ -587,24 +587,78 @@ def cmd_connector(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     gen = generate(package, check=args.check, max_bytes=args.max_bytes)
-    size = gen.built.size if gen.built else None
     if args.output == "json":
-        print(json.dumps({"schema": "ifs-agent-ops/connector-generation", "schema_version": 1, "package": package.name,
+        print(json.dumps({"schema": "ifs-agent-ops/connector-generation", "schema_version": 2, "package": package.name,
                           "check": args.check, "ok": gen.ok, "errors": gen.errors,
-                          "size": {"bytes": size.bytes, "limit": size.limit} if size else None,
-                          "operations": [{"operation": e.sel.op.id, "operation_id": e.operation_id,
-                                          "method": e.method, "path": e.path, "match": e.sel.match}
-                                         for e in (gen.built.entries if gen.built else [])],
+                          "connectors": [{"projection": p, "size": {"bytes": b.size.bytes, "limit": b.size.limit},
+                                          "operations": [{"operation": e.sel.op.id, "operation_id": e.operation_id,
+                                                          "method": e.method, "path": e.path, "match": e.sel.match}
+                                                         for e in b.entries]}
+                                         for p, b in gen.built.items()],
                           "results": [{"path": str(r.path), "action": r.action, "message": r.message}
                                       for r in gen.results]}, indent=2))
     else:
         for r in gen.results:
             print(f"{r.action:<12} {r.path}" + (f"\n             {r.message}" if r.message else ""))
-        if size:
-            print(f"{len(gen.built.entries)} operations; apiDefinition {size.bytes:,} of {size.limit:,} bytes "
-                  f"({100 * size.bytes / size.limit:.1f}%); not deployment-validated until Phase 11")
+        for p, b in gen.built.items():
+            print(f"{p}: {len(b.entries)} operations; apiDefinition {b.size.bytes:,} of {b.size.limit:,} bytes "
+                  f"({100 * b.size.bytes / b.size.limit:.1f}%)")
+        if gen.built:
+            print("Not deployment-validated until Phase 11.")
     stale = args.check and any(r.action.startswith("would-") for r in gen.results)
     return 1 if not gen.ok or stale else 0
+
+
+def cmd_deploy(args: argparse.Namespace) -> int:
+    """Deployment intent (deploy.yaml): scaffold it, check it."""
+    import json
+
+    from ifs_agent_ops.deploy import intent as di
+    from ifs_agent_ops.workspace.discovery import find_package
+    from ifs_agent_ops.workspace.package import PackageError
+
+    try:
+        package = find_package(args.package)
+    except PackageError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    path = di.deploy_path(package)
+    if args.deploy_command == "init":
+        if path.exists():
+            print(f"error: {path} already exists; edit it, then run: ifs-agent-ops deploy check "
+                  f"--package {package.name}", file=sys.stderr)
+            return 2
+        text = di.scaffold(package, args.publisher, args.prefix, args.host_variable)
+        import yaml
+        errors, _ = di.validate(di.parse(yaml.safe_load(text), path), package)
+        if errors:
+            print("error: " + "\n       ".join(errors), file=sys.stderr)
+            return 2
+        path.write_text(text, encoding="utf-8", newline="\n")
+        print(f"created {path}\nReview it, then run: ifs-agent-ops deploy check --package {package.name}")
+        return 0
+    # check
+    try:
+        intent = di.load_intent(package)
+    except di.IntentError as exc:
+        errors, warnings = [str(exc)], []
+    else:
+        if intent is None:
+            errors, warnings = [(f"no {di.DEPLOY_FILE} in {package.root} (create one with: ifs-agent-ops deploy init "
+                                 f"--package {package.name} --publisher <name> --prefix <prefix>)")], []
+        else:
+            errors, warnings = di.validate(intent, package)
+    if args.json:
+        print(json.dumps({"package": package.name, "path": str(path), "ok": not errors, "errors": errors,
+                          "warnings": warnings}, indent=2))
+    else:
+        for e in errors:
+            print(f"FAIL  {e}")
+        for w in warnings:
+            print(f"WARN  {w}")
+        if not errors:
+            print(f"OK    {path}" + (f" ({len(warnings)} warning(s))" if warnings else ""))
+    return 1 if errors else 0
 
 
 def cmd_capture(args: argparse.Namespace) -> int:
@@ -855,7 +909,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     con = sub.add_parser("connector", help="Power Platform custom connector generated from approved capabilities"
                          ).add_subparsers(dest="connector_command", required=True)
-    c_gen = con.add_parser("generate", help="generate <package>/power-platform/connector/* from approved capabilities")
+    c_gen = con.add_parser("generate", help="generate <package>/power-platform/connectors/<Projection>/ "
+                                            "(one connector per IFS service) from approved capabilities")
     c_gen.add_argument("--package", required=True)
     c_gen.add_argument("--check", action="store_true", help="write nothing; exit 1 if a file is missing or stale")
     c_gen.add_argument("--max-bytes", type=int, default=1_000_000, help="apiDefinition size limit (default 1000000)")
@@ -891,6 +946,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     v_report.add_argument("capability")
     v_report.add_argument("--package", required=True)
 
+    dep = sub.add_parser("deploy", help="deployment intent (deploy.yaml): what should exist, by logical name"
+                         ).add_subparsers(dest="deploy_command", required=True)
+    d_init = dep.add_parser("init", help="write a first deploy.yaml for the package")
+    d_init.add_argument("--package", required=True)
+    d_init.add_argument("--publisher", required=True, help="existing publisher unique name (e.g. TietexAdmin)")
+    d_init.add_argument("--prefix", required=True, help="that publisher's customization prefix (e.g. ti)")
+    d_init.add_argument("--host-variable", help="environment variable holding the IFS host (default <prefix>_IFSDomain)")
+    d_check = dep.add_parser("check", help="validate deploy.yaml against itself and the package (read-only)")
+    d_check.add_argument("--package", required=True)
+    d_check.add_argument("--json", action="store_true")
+
     args = parser.parse_args(argv)
     load_env()
 
@@ -898,6 +964,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_testlog(args)
     if args.command == "validation":
         return cmd_validation(args)
+    if args.command == "deploy":
+        return cmd_deploy(args)
 
     if args.command == "package":
         return cmd_package(args)
