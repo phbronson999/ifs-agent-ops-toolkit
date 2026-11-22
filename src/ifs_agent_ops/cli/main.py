@@ -996,6 +996,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     doc.add_argument("--all", action="store_true", help="check every capability")
     doc.add_argument("--offline", action="store_true", help="skip network checks")
     doc.add_argument("--json", action="store_true", help="machine-readable output")
+    boot = sub.add_parser("bootstrap", help="install missing local tools per capability (asks before each install)")
+    boot.add_argument("--for", dest="capabilities", action="append", default=[],
+                      choices=["toolkit", "ifs", "packages", "power-platform", "agents", "spfx"],
+                      help="capability to prepare (repeatable; default: toolkit, ifs, packages)")
+    boot.add_argument("--all", action="store_true", help="every capability")
+    boot.add_argument("--dry-run", action="store_true", help="show what would be installed; change nothing")
+    boot.add_argument("--yes", action="store_true", help="install without asking for each tool")
     har = sub.add_parser("har", help="work with browser HAR recordings").add_subparsers(dest="har_command", required=True)
     s_san = har.add_parser("sanitize", help="remove credentials, trace infrastructure details and _initiator")
     s_san.add_argument("input")
@@ -1283,6 +1290,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         results = doctor.run(wanted, online=not args.offline)
         print(_json.dumps(doctor.as_dicts(results), indent=2) if args.json else doctor.render(results))
         return doctor.exit_code(results)
+    if args.command == "bootstrap":
+        from ifs_agent_ops import bootstrap
+
+        wanted = bootstrap.resolve(args.capabilities, args.all)
+        outcomes = bootstrap.run(wanted, yes=args.yes, dry_run=args.dry_run)
+        print("\n" + bootstrap.render(wanted, outcomes))
+        return bootstrap.exit_code(outcomes)
     if args.command == "profiles":
         return cmd_profiles(args)
     if args.command == "har":

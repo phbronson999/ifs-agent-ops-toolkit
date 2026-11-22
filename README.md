@@ -126,6 +126,29 @@ The project is expected to include:
 - **Deployment adapters** - reconcile package intent with Power Platform and Microsoft 365 per target environment
 - **Doctor / bootstrap** - capability-based readiness checks and explicit local setup
 
+## Setting up a machine
+
+Install Python 3.11+ and Git, clone the toolkit, then:
+
+```powershell
+py -3.13 -m venv .venv
+.venv\Scripts\python -m pip install -e ".[dev]"
+.venv\Scripts\ifs-agent-ops bootstrap --all --dry-run   # what is missing, per capability
+.venv\Scripts\ifs-agent-ops bootstrap --all             # install it, asking before each tool
+.venv\Scripts\ifs-agent-ops doctor --all                # then check, including sign-ins
+```
+
+`bootstrap` changes only the local machine. It installs missing tools with winget (Git, Node.js
+LTS, Power Platform CLI, Azure CLI) and npm (Agents Toolkit CLI, SPFx generator), shows each
+command and asks before running it (`--yes` skips the questions). It never signs in or creates
+anything in a tenant: it lists the sign-ins (`pac auth create`, `az login --allow-no-subscriptions`,
+`atk auth login m365`) for you to run, and `doctor` checks them.
+
+Choose only what the machine is for with `--for` (`toolkit`, `packages`, `power-platform`,
+`agents`, `spfx`; the default is the core capabilities). A tool installed by an earlier session can be
+present but not on the current terminal's PATH. `bootstrap` reports that as **NOT ON PATH** instead
+of reinstalling it: open a new terminal, or restart VS Code.
+
 ## Development workflow
 
 Capability development starts with intent and a planned recording ([roadmap §1.1](docs/roadmap.md)):
