@@ -194,7 +194,7 @@ excludes and which never becomes canonical source. The platform is authoritative
 | Command | Changes anything? | Responsibility |
 |---|---|---|
 | `doctor [--for <capability>]` | no | inspect toolchain, config, auth, packages; PASS/WARN/FAIL/NOT REQUIRED |
-| `bootstrap [--for <capability>]` | local only, explicit | install/configure deterministic local prerequisites, each step confirmed |
+| `bootstrap [--for <capability>] [--dry-run] [--yes]` | local only, explicit | install missing local tools (winget, npm), each step confirmed; reports tools installed but not on PATH; lists sign-ins without doing them (implemented) |
 | `generate --package` | package files only | run generators for approved operations |
 | `deploy validate --package --target` | no (uploads the solution to the Power Apps checker) | static, platform (deployed state, export, solution checker) and, from Phase 12, runtime checks through the flow; records `runtime_validation` status (implemented, Phase 11) |
 | `deploy plan --package --target` | no | compute the diff between intent and deployed state (implemented, Phase 10) |
