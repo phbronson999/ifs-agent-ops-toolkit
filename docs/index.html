@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IFS Agent Ops Journey</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* One screen: the step list on the left, one fixed map of the whole system on the right.
+   Each step lights the path it takes through the map; the controls never move. */
+:root {
+  --paper: #eef1f5;
+  --sheet: #ffffff;
+  --ink: #142033;
+  --ink-2: #55647d;
+  --rule: #d6dde8;
+  --faint: #c3ccd9;
+  --accent: #0b63c5;
+  --accent-soft: #e2edfb;
+  --people: #6a4fb3;
+  --people-soft: #efeafb;
+  --gate: #b45f06;
+  --gate-soft: #fcefdc;
+  --ok: #187a4a;
+  --ok-soft: #e1f3e9;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0c131d; --sheet: #152238; --ink: #e7edf6; --ink-2: #a2b2c9; --rule: #2a3a54; --faint: #33445f;
+    --accent: #62abff; --accent-soft: #173150; --people: #b49cff; --people-soft: #2a2346;
+    --gate: #f2a64e; --gate-soft: #3b2a13; --ok: #5ecb91; --ok-soft: #143327; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 14px/1.5 var(--body); }
+h1, h2, h3 { font-family: var(--display); margin: 0; line-height: 1.15; text-wrap: balance; }
+p { margin: 0; }
+button { font: 600 .85rem var(--body); padding: 8px 14px; border-radius: 6px; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .4; cursor: default; }
+button:focus-visible, .step:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.app { height: 100%; display: grid; grid-template-columns: 300px minmax(0, 1fr); }
+
+/* step list */
+.rail { background: var(--sheet); border-right: 1px solid var(--rule); overflow-y: auto; padding: 22px 14px 22px max(16px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: 4px; }
+.brand { display: flex; flex-direction: column; gap: 6px; padding: 0 6px 14px; }
+.eyebrow { font: 500 .7rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.brand h1 { font-size: 1.35rem; }
+.acthead { font: 600 .78rem var(--display); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-2); padding: 14px 6px 4px; }
+.step { display: grid; grid-template-columns: 26px 1fr; gap: 8px; align-items: baseline; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: var(--ink-2); }
+.step b { font: 600 .8rem var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+.step span { font-size: .88rem; }
+.step:hover { background: var(--paper); }
+.step.done { color: var(--ink); }
+.step.on { background: var(--accent-soft); color: var(--ink); }
+.step.on b { color: var(--accent); }
+.step.gate span::after { content: " \25C6"; color: var(--gate); font-size: .7em; vertical-align: middle; }
+
+/* stage */
+.stage { overflow-y: auto; display: flex; flex-direction: column; padding: 22px max(16px, env(safe-area-inset-right, 0px)) 0 28px; gap: 16px; }
+.where { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.where .act { font: 600 1rem var(--display); }
+.where .act small { font: 400 .88rem var(--body); color: var(--ink-2); margin-left: 8px; }
+.map { background: var(--sheet); border: 1px solid var(--rule); border-radius: 14px; padding: 10px; }
+.map svg { display: block; width: 100%; height: auto; max-height: 46vh; }
+.node rect { fill: var(--paper); stroke: var(--rule); stroke-width: 1.5; transition: fill .3s, stroke .3s; }
+.node text { fill: var(--ink-2); font-family: var(--body); transition: fill .3s; }
+.node .name { font: 600 15px var(--display); fill: var(--ink); }
+.node.people .name { fill: var(--people); }
+.node.on rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2.5; }
+.node.on.people rect { fill: var(--people-soft); stroke: var(--people); }
+.node.on.decide rect { fill: var(--gate-soft); stroke: var(--gate); stroke-width: 3; }
+.node.on.decide .name { fill: var(--gate); }
+.base { stroke: var(--faint); stroke-width: 1.5; fill: none; }
+.flow { stroke: var(--accent); stroke-width: 3; fill: none; stroke-dasharray: 8 7; animation: flow .9s linear infinite; marker-end: url(#arrow); }
+.flow.back { stroke: var(--ok); marker-end: url(#arrow-ok); }
+#arrow path { fill: var(--accent); }
+#arrow-ok path { fill: var(--ok); }
+@keyframes flow { to { stroke-dashoffset: -15; } }
+.pulse { fill: none; stroke: var(--accent); stroke-width: 2; opacity: 0; }
+.pulse.go { animation: pulse 1.6s ease-out infinite; }
+@keyframes pulse { 0% { opacity: .7; transform: scale(1); } 100% { opacity: 0; transform: scale(1.12); } }
+@media (prefers-reduced-motion: reduce) { .flow, .pulse.go { animation: none; } .pulse.go { opacity: .5; } }
+
+.detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: 18px; align-items: start; }
+.what { display: flex; flex-direction: column; gap: 8px; max-width: 64ch; }
+.what .tag { align-self: flex-start; font: 600 .7rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 5px 8px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); }
+.what .tag.decide { background: var(--gate-soft); color: var(--gate); }
+.what h2 { font-size: clamp(1.5rem, 2.6vw, 2.1rem); letter-spacing: -.01em; }
+.what p { font-size: 1.05rem; color: var(--ink-2); }
+.shelf { background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.shelf h3 { font: 600 .74rem var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-2); }
+.shelf ol { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.shelf li { font: 500 .74rem/1.2 var(--mono); padding: 4px 7px; border-radius: 4px; background: var(--paper); color: var(--ink-2); }
+.shelf li.new { background: var(--accent-soft); color: var(--accent); }
+.shelf li.final { background: var(--ok-soft); color: var(--ok); }
+.shelf .empty { font-size: .82rem; color: var(--ink-2); }
+
+.bar { position: sticky; bottom: 0; margin-top: auto; background: var(--paper); border-top: 1px solid var(--rule); padding: 12px 0 calc(14px + env(safe-area-inset-bottom, 0px));
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.progress { flex: 1 1 160px; height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+.count { font: 500 .82rem var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums; min-width: 6ch; text-align: center; }
+.hint { font-size: .78rem; color: var(--ink-2); }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; height: auto; }
+  .rail { display: none; }
+  .stage { overflow: visible; padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+  .detail { grid-template-columns: 1fr; }
+  .bar { position: fixed; left: 0; right: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .stage { padding-bottom: 90px; }
+  .hint { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="rail" id="rail" aria-label="Steps">
+    <div class="brand">
+      <span class="eyebrow">IFS Agent Ops</span>
+      <h1>From a recorded task to an order in IFS</h1>
+    </div>
+  </nav>
+  <main class="stage">
+    <div class="where"><span class="act" id="act"></span></div>
+    <div class="map">
+      <svg id="map" viewBox="0 0 880 380" role="img" aria-label="Map of the system: builder, toolkit, IFS Cloud, Power Platform, Copilot and order desk">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z"/></marker>
+          <marker id="arrow-ok" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z"/></marker>
+        </defs>
+        <g id="edges"></g><g id="flows"></g><g id="nodes"></g>
+      </svg>
+    </div>
+    <div class="detail">
+      <div class="what" aria-live="polite">
+        <span class="tag" id="tag"></span>
+        <h2 id="title"></h2>
+        <p id="text"></p>
+      </div>
+      <div class="shelf">
+        <h3>Built so far</h3>
+        <ol id="shelf"></ol>
+      </div>
+    </div>
+    <div class="bar">
+      <button id="prev" type="button">Back</button>
+      <button id="next" type="button" class="primary">Next</button>
+      <span class="count" id="count"></span>
+      <div class="progress" aria-hidden="true"><i id="prog"></i></div>
+      <span class="hint">Arrow keys move · Home restarts</span>
+      <button id="full" type="button">Full screen</button>
+    </div>
+  </main>
+</div>
+
+<script>
+const W = 180, H = 64;  // node size in map units
+const NODES = {
+  builder: { name: "Builder", sub: "records, describes, approves", x: 120, y: 70, people: true },
+  toolkit: { name: "IFS Agent Ops", sub: "toolkit on the builder's PC", x: 420, y: 70 },
+  ifs:     { name: "IFS Cloud", sub: "where the data lives", x: 760, y: 190 },
+  user:    { name: "Order desk", sub: "the person entering orders", x: 120, y: 310, people: true },
+  m365:    { name: "Copilot", sub: "agent, picker, overview", x: 370, y: 310 },
+  pp:      { name: "Power Platform", sub: "flows, connector, gateway", x: 600, y: 310 }
+};
+const BASE = [["builder", "toolkit"], ["builder", "ifs"], ["toolkit", "ifs"], ["toolkit", "pp"], ["toolkit", "m365"],
+              ["user", "m365"], ["m365", "pp"], ["pp", "ifs"]];
+
+const ACTS = [
+  { title: "Teach it once", text: "a builder, once per task", steps: [
+    { title: "Record the task", on: ["builder"], flows: [["builder", "ifs"], ["ifs", "toolkit"]], makes: "recording",
+      text: "The builder does the real task in the IFS web client, step by step. A browser extension records every call IFS makes." },
+    { title: "Clean the evidence", on: ["toolkit"], flows: [], makes: "safe evidence",
+      text: "Server names, people's names and login tokens are removed before anything is saved. Raw traces never leave the machine." },
+    { title: "Understand the calls", on: ["toolkit"], flows: [["ifs", "toolkit"]], makes: "operations",
+      text: "The calls, their order and IFS's own API descriptions become exact operation contracts." },
+    { title: "Approve the operations", decide: true, on: ["builder"], flows: [["builder", "toolkit"]], makes: "approved operations",
+      text: "A person confirms each operation is technically right." },
+    { title: "Describe the business task", on: ["builder"], flows: [["builder", "toolkit"]], makes: "capability",
+      text: "What the agent asks for, what it looks up in IFS, which values default, and when to ask the user." },
+    { title: "Approve the capability", decide: true, on: ["builder"], flows: [["builder", "toolkit"]], makes: "approved capability",
+      text: "A person approves the business rules. Nothing is generated before this." },
+    { title: "Try it against TEST", on: ["toolkit"], flows: [["toolkit", "ifs"]], makes: "test results",
+      text: "Claude runs the task against the IFS test system. Every call is logged and every requirement is checked." },
+    { title: "Generate everything", on: ["toolkit"], flows: [], makes: "connector, flows, agent",
+      text: "From the one approved capability: the connector, the two flows, and the Copilot agent with its instructions." },
+    { title: "Deploy", on: ["pp"], flows: [["toolkit", "pp"]], makes: "deployed solution",
+      text: "One import puts the connector and flows into Power Platform, connected to IFS through the on-premises gateway." },
+    { title: "Prove it works deployed", on: ["pp", "ifs"], flows: [["toolkit", "pp"], ["pp", "ifs"]], makes: "validated",
+      text: "Real calls go through the deployed flows into IFS. Only then is the task marked validated." },
+    { title: "Publish to Copilot", on: ["m365"], flows: [["toolkit", "m365"]], makes: "Customer Orders Guided",
+      text: "The agent, the picker and the order overview are published to Microsoft 365 for the people who need them." }
+  ]},
+  { title: "Use it every day", text: "the order desk, for every order", steps: [
+    { title: "Ask Copilot", on: ["user", "m365"], flows: [["user", "m365"]],
+      text: "“Create an order from this PO.” Paste the customer's email or attach the document." },
+    { title: "Prepare: read only", on: ["pp", "ifs"], flows: [["m365", "pp"], ["pp", "ifs"]], makes: "proposal",
+      text: "A flow finds the customer, the parts and the order coordinators in IFS. Nothing is written." },
+    { title: "Pick what's unclear", on: ["user", "m365"], flows: [["m365", "user"]],
+      text: "When a part or customer matches several records, a picker lists them. One click answers." },
+    { title: "Review and confirm", decide: true, on: ["user"], flows: [["user", "m365"]],
+      text: "The order overview shows customer, delivery date, coordinator and lines. “Create the order” is the only way to write." },
+    { title: "Submit: writes", on: ["pp", "ifs"], flows: [["m365", "pp"], ["pp", "ifs"]],
+      text: "A flow creates the order header and each line in IFS. A write is never retried." },
+    { title: "See the result", on: ["user", "ifs"], flows: [["ifs", "pp"], ["pp", "m365"], ["m365", "user"]], back: true, makes: "order in IFS",
+      text: "The order number, IFS prices, totals and any IFS messages come back to the order desk in the overview." }
+  ]}
+];
+
+const STEPS = [];
+ACTS.forEach((a, ai) => a.steps.forEach((s, si) => STEPS.push({ ...s, act: ai, inAct: si + 1, ofAct: a.steps.length })));
+
+const NS = "http://www.w3.org/2000/svg";
+const svgEl = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+const $ = id => document.getElementById(id);
+
+function clip(a, b, pad) {  // point on a's box edge toward b
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const t = Math.min((W / 2 + pad) / Math.abs(dx || 1e-9), (H / 2 + pad) / Math.abs(dy || 1e-9));
+  return { x: a.x + dx * t, y: a.y + dy * t };
+}
+function line(from, to, pad) {
+  const a = clip(NODES[from], NODES[to], 4), b = clip(NODES[to], NODES[from], pad);
+  return `M${a.x.toFixed(1)} ${a.y.toFixed(1)} L${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+}
+
+BASE.forEach(([a, b]) => $("edges").appendChild(svgEl("path", { d: line(a, b, 4), class: "base" })));
+const nodeEls = {};
+for (const id in NODES) {
+  const n = NODES[id];
+  const g = svgEl("g", { class: "node" + (n.people ? " people" : "") });
+  const pulse = svgEl("rect", { x: n.x - W / 2, y: n.y - H / 2, width: W, height: H, rx: 12, class: "pulse",
+    style: `transform-origin:${n.x}px ${n.y}px` });
+  g.appendChild(pulse);
+  g.appendChild(svgEl("rect", { x: n.x - W / 2, y: n.y - H / 2, width: W, height: H, rx: 12 }));
+  const t1 = svgEl("text", { x: n.x, y: n.y - 4, "text-anchor": "middle", class: "name" }); t1.textContent = n.name;
+  const t2 = svgEl("text", { x: n.x, y: n.y + 16, "text-anchor": "middle", "font-size": 12 }); t2.textContent = n.sub;
+  g.append(t1, t2);
+  $("nodes").appendChild(g);
+  nodeEls[id] = { g, pulse };
+}
+
+// step list
+const rail = $("rail"), items = [];
+let k = 0;
+ACTS.forEach(a => {
+  const h = document.createElement("div"); h.className = "acthead"; h.textContent = a.title; rail.appendChild(h);
+  a.steps.forEach(s => {
+    const i = k++;
+    const d = document.createElement("div");
+    d.className = "step" + (s.decide ? " gate" : ""); d.tabIndex = 0; d.setAttribute("role", "button");
+    d.innerHTML = `<b>${i + 1}</b><span></span>`; d.querySelector("span").textContent = s.title;
+    d.addEventListener("click", () => show(i));
+    d.addEventListener("keydown", e => { if (e.key === "Enter") show(i); });
+    rail.appendChild(d); items.push(d);
+  });
+});
+
+let current = 0;
+function show(i) {
+  current = Math.max(0, Math.min(STEPS.length - 1, i));
+  const s = STEPS[current], act = ACTS[s.act];
+  $("act").innerHTML = ""; $("act").append(act.title);
+  const small = document.createElement("small"); small.textContent = `${act.text} · step ${s.inAct} of ${s.ofAct}`; $("act").appendChild(small);
+  $("tag").textContent = s.decide ? "A person decides" : (s.act === 0 ? "Build" : "Run");
+  $("tag").className = "tag" + (s.decide ? " decide" : "");
+  $("title").textContent = s.title;
+  $("text").textContent = s.text;
+
+  const flows = $("flows"); flows.innerHTML = "";
+  s.flows.forEach(([a, b]) => flows.appendChild(svgEl("path", { d: line(a, b, 10), class: "flow" + (s.back ? " back" : "") })));
+  const lit = new Set([...s.on, ...s.flows.flat()]);
+  for (const id in nodeEls) {
+    const on = lit.has(id), focus = s.on.includes(id);
+    nodeEls[id].g.classList.toggle("on", on);
+    nodeEls[id].g.classList.toggle("decide", !!s.decide && focus);
+    nodeEls[id].pulse.classList.toggle("go", focus);
+  }
+
+  const shelf = $("shelf"); shelf.innerHTML = "";
+  const made = STEPS.slice(0, current + 1).filter(x => x.makes);
+  if (!made.length) { const e = document.createElement("li"); e.className = "empty"; e.textContent = "nothing yet"; shelf.appendChild(e); }
+  made.forEach(x => {
+    const li = document.createElement("li"); li.textContent = x.makes;
+    if (x === s) li.className = x.makes === "order in IFS" ? "final" : "new";
+    shelf.appendChild(li);
+  });
+
+  items.forEach((el, j) => { el.classList.toggle("on", j === current); el.classList.toggle("done", j < current); });
+  items[current].scrollIntoView({ block: "nearest" });
+  $("count").textContent = `${current + 1} / ${STEPS.length}`;
+  $("prog").style.width = `${((current + 1) / STEPS.length) * 100}%`;
+  $("prev").disabled = current === 0;
+  $("next").disabled = current === STEPS.length - 1;
+}
+
+$("next").addEventListener("click", () => show(current + 1));
+$("prev").addEventListener("click", () => show(current - 1));
+document.addEventListener("keydown", e => {
+  if (["ArrowDown", "ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); show(current + 1); }
+  else if (["ArrowUp", "ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); show(current - 1); }
+  else if (e.key === "Home") { e.preventDefault(); show(0); }
+  else if (e.key === "End") { e.preventDefault(); show(STEPS.length - 1); }
+});
+$("full").addEventListener("click", () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+});
+document.addEventListener("fullscreenchange", () => { $("full").textContent = document.fullscreenElement ? "Exit full screen" : "Full screen"; });
+show(0);
+</script>
+</body>
+</html>
