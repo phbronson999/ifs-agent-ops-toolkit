@@ -355,20 +355,21 @@ approval. Each run is also saved locally under `.ifs-agent-ops/runs/`.
 ## Status
 
 Early development, used against a real IFS Cloud TEST environment and a Power Platform development
-environment. Phases 0–11 and 12a of the [roadmap](docs/roadmap.md) are merged:
+environment. Phases 0–11 and 12a of the [roadmap](docs/roadmap.md) are merged, and 12b is in review:
 
 - **Capture → operations → capability:** guided browser capture, sanitized recordings, canonical operations and
   curated capabilities, each approved by a person.
 - **Testing with Claude:** a local test log of IFS calls and validation findings per requirement. The pilot
   capability (`create-customer-order`) has all 13 requirements passed.
-- **Generators:** agent skills and Power Platform custom connectors (one per IFS service, Basic authentication
-  through the on-premises data gateway).
+- **Generators:** agent skills, Power Platform custom connectors (one per IFS service, Basic authentication
+  through the on-premises data gateway) and Power Automate flows (one per capability action).
 - **Deployment:** `deploy.yaml` plus machine-local targets; `deploy plan / apply / status` reconcile a solution
   in a development environment (idempotent); `deploy validate` checks the deployed path and records the
   capability's runtime-validation status (the pilot is **validated** on the development target).
 
-**Next:** generated Power Automate flows for each capability action (`prepare`, `submit`), deployed into the
-same solution and validated through their HTTP triggers (Phase 12), then the Microsoft 365 agent (Phase 13).
+The pilot's `prepare` and `submit` flows are deployed to the development environment and turned on.
+
+**Next:** validating the flows through their HTTP triggers (Phase 12c), then the Microsoft 365 agent (Phase 13).
 Promotion beyond development stays with Power Platform Pipelines.
 
 The project evolved from my Python-based IFS MCP implementation, which provides IFS authentication,
