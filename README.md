@@ -406,7 +406,7 @@ a published update always has a higher version. Install the CLI with
 ## Status
 
 Early development, used against a real IFS Cloud TEST environment and a Power Platform development
-environment. Phases 0–12 of the [roadmap](docs/roadmap.md) are merged, and Phase 13 is in review:
+environment. Phases 0–13 of the [roadmap](docs/roadmap.md) are merged:
 
 - **Capture → operations → capability:** guided browser capture, sanitized recordings, canonical operations and
   curated capabilities, each approved by a person.
@@ -423,8 +423,9 @@ The pilot runs end to end on the development environment, from Microsoft 365 Cop
 flows, the connector and the gateway to IFS and back. `deploy validate` runs the pilot's runtime cases through
 the flows.
 
-**Next:** promotion beyond development (Power Platform Pipelines for the solution, organization publishing for
-the agent) and more capabilities.
+**Next:** Phase 14, promotion and CI readiness: promoting the solution from development to test through Power
+Platform Pipelines, and the agent with it, from the CLI. Only capabilities whose runtime status is validated
+(or conditional, within its recorded scope) are promoted.
 
 The project evolved from my Python-based IFS MCP implementation, which provides IFS authentication,
 protected API calls, OpenAPI inspection, metadata analysis and HAR-based workflow analysis:
