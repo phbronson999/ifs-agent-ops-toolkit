@@ -5,7 +5,7 @@ import json
 import pytest
 import yaml
 
-from ifs_agent_ops.generators.connector import (DEFINITION_FILE, MAP_FILE, REPORT_FILE, compat, connector_dir,
+from ifs_agent_ops.generators.connector import (DEFINITION_FILE, FILES, MAP_FILE, REPORT_FILE, compat, connector_dir,
                                                 generate, validate)
 from ifs_agent_ops.generators.connector.select import match_spec
 from ifs_agent_ops.generators.gating import GenerationRefused
@@ -90,7 +90,7 @@ def pinned(approved):  # noqa: F811
 
 
 def _definition(pkg):  # noqa: F811
-    return json.loads((connector_dir(pkg) / DEFINITION_FILE).read_text(encoding="utf-8"))
+    return json.loads((connector_dir(pkg, "OrderHandling") / DEFINITION_FILE).read_text(encoding="utf-8"))
 
 
 def test_connector_contains_only_capability_operations_with_their_dependencies(pinned):
@@ -100,35 +100,46 @@ def test_connector_contains_only_capability_operations_with_their_dependencies(p
     ops = load_operations(pinned)
     assert sorted(o["operationId"] for item in doc["paths"].values() for o in item.values()) == \
         sorted(ops[i].connector_operation_id for i in USED)
-    assert (doc["host"], doc["basePath"]) == ("ifs.example", PROJECTION_ROOT)
-    assert all(p.startswith("/OrderHandling.svc/") for p in doc["paths"])
+    # one connector per IFS service: the base URL ends in the service, paths are relative to it
+    assert (doc["host"], doc["basePath"]) == ("ifs.example", f"{PROJECTION_ROOT}/OrderHandling.svc")
+    assert doc["info"]["title"] == "OrderHandling"
+    assert not any(p.startswith("/OrderHandling.svc") for p in doc["paths"])
     # C7: closure kept, everything else dropped
     assert sorted(doc["definitions"]) == ["CheckResult", "Line", "Order", "Order-Insert"]
     assert sorted(doc["parameters"]) == ["top"] and "UnusedResponse" not in doc["responses"]
     assert [t["name"] for t in doc["tags"]] == ["OrderSet", "Functions"]
-    assert "securityDefinitions" not in doc  # connection auth is deployment state (Phase 10)
+    # the pinned spec's IFS OAuth schemes are dropped; the connection is Basic auth through the gateway
+    assert doc["securityDefinitions"] == {"basic-auth": {"type": "basic"}}
+    assert doc["security"] == [{"basic-auth": []}]
+    props = json.loads((connector_dir(pinned, "OrderHandling") / "apiProperties.json").read_text(encoding="utf-8"))["properties"]
+    params = props["connectionParameters"]
+    assert props["capabilities"] == ["gateway"]  # ticks "Connect via on-premises data gateway"
+    assert list(params) == ["username", "password", "authType", "gateway"]
+    assert params["authType"]["allowedValues"] == [{"value": "basic"}]
+    assert params["gateway"]["gatewaySettings"]["dataSourceType"] == "CustomConnector"
+    assert all(p["uiDefinition"]["constraints"]["capability"] == ["gateway"] for p in params.values())
     # C4 from the manifest, C11 compact UTF-8
     assert 30 <= len(doc["info"]["description"]) <= 500 and "create-order" in doc["info"]["description"]
-    raw = (connector_dir(pinned) / DEFINITION_FILE).read_text(encoding="utf-8")
+    raw = (connector_dir(pinned, "OrderHandling") / DEFINITION_FILE).read_text(encoding="utf-8")
     assert raw == validate.compact(doc) + "\n"
 
 
 def test_function_parameters_are_literals_and_reads_are_annotated(pinned):
     generate(pinned)
     doc = _definition(pinned)
-    fn_path = "/OrderHandling.svc/GetDefaults(CustomerNo={CustomerNo},TaxCode={TaxCode})"
+    fn_path = "/GetDefaults(CustomerNo={CustomerNo},TaxCode={TaxCode})"
     params = {p["name"]: p for p in doc["paths"][fn_path]["get"]["parameters"]}
     assert "or null" in params["CustomerNo"]["description"] and params["CustomerNo"]["x-ms-summary"] == "CustomerNo"
     # entity keys keep the quotes; the caller sends the bare value
-    assert "/OrderHandling.svc/OrderSet(OrderNo='{OrderNo}')/LinesArray" in doc["paths"]
-    query = {p.get("name", p.get("$ref")): p for p in doc["paths"]["/OrderHandling.svc/OrderSet"]["get"]["parameters"]}
+    assert "/OrderSet(OrderNo='{OrderNo}')/LinesArray" in doc["paths"]
+    query = {p.get("name", p.get("$ref")): p for p in doc["paths"]["/OrderSet"]["get"]["parameters"]}
     assert all(p.get("type") != "array" for p in query.values())                        # C3
     assert "AVAILABLE FIELDS: OrderNo, CustomerNo, Objstate" in query["$select"]["description"]   # C9
     assert "luname" not in query["$select"]["description"]
     assert f"Objstate eq {NS}.OrderState'<Member>'; members: Planned, Released" in query["$filter"]["description"]  # C8
     assert "OData Filtering" not in json.dumps(doc) and "Values include: OrderNo, OrderNo desc" in \
         query["$orderby"]["description"]
-    create = doc["paths"]["/OrderHandling.svc/OrderSet(OrderNo='{OrderNo}')/LinesArray"]["post"]
+    create = doc["paths"]["/OrderSet(OrderNo='{OrderNo}')/LinesArray"]["post"]
     assert [p["in"] for p in create["parameters"]] == ["path", "body"]
 
 
@@ -136,7 +147,7 @@ def test_generation_is_deterministic_and_checkable(pinned):
     generate(pinned)
     assert [r.action for r in generate(pinned).results] == ["unchanged"] * 4
     assert [r.action for r in generate(pinned, check=True).results] == ["unchanged"] * 4
-    path = connector_dir(pinned) / DEFINITION_FILE
+    path = connector_dir(pinned, "OrderHandling") / DEFINITION_FILE
     path.write_text("{}", encoding="utf-8")
     assert "would-update" in [r.action for r in generate(pinned, check=True).results]
     assert path.read_text(encoding="utf-8") == "{}"
@@ -144,11 +155,11 @@ def test_generation_is_deterministic_and_checkable(pinned):
 
 def test_report_and_operation_id_map(pinned):
     generate(pinned)
-    report = (connector_dir(pinned) / REPORT_FILE).read_text(encoding="utf-8")
+    report = (connector_dir(pinned, "OrderHandling") / REPORT_FILE).read_text(encoding="utf-8")
     for expected in ("not deployment-validated", "## Size (C10)", "create-order",
                      "placeholder `ifs.example`", "## Provenance", "openapi.v2.json sha256"):
         assert expected in report, expected
-    data = yaml.safe_load((connector_dir(pinned) / MAP_FILE).read_text(encoding="utf-8"))
+    data = yaml.safe_load((connector_dir(pinned, "OrderHandling") / MAP_FILE).read_text(encoding="utf-8"))
     ops = load_operations(pinned)
     assert {k: v["operation_id"] for k, v in data["operations"].items()} == \
         {i: ops[i].connector_operation_id for i in USED}
@@ -157,7 +168,7 @@ def test_report_and_operation_id_map(pinned):
 
 def test_operation_ids_never_change_and_are_retired_not_reused(pinned):
     generate(pinned)
-    map_path = connector_dir(pinned) / MAP_FILE
+    map_path = connector_dir(pinned, "OrderHandling") / MAP_FILE
     text = map_path.read_text(encoding="utf-8")
     data = yaml.safe_load(text)
     data["operations"]["OrderHandling.query.Gone"] = {"operation_id": "query_Gone", "method": "GET", "path": "/x",
@@ -197,11 +208,11 @@ def test_operation_missing_from_spec_is_refused(approved):  # noqa: F811
     _pin(approved, document)
     gen = generate(approved)
     assert not gen.ok and "is not in the pinned $openapi" in gen.errors[0]
-    assert not (connector_dir(approved) / DEFINITION_FILE).exists()
+    assert not (connector_dir(approved, "OrderHandling") / DEFINITION_FILE).exists()
 
 
 def test_hand_written_connector_is_not_overwritten(pinned):
-    folder = connector_dir(pinned)
+    folder = connector_dir(pinned, "OrderHandling")
     folder.mkdir(parents=True, exist_ok=True)
     (folder / DEFINITION_FILE).write_text('{"hand": "made"}', encoding="utf-8")
     gen = generate(pinned)
@@ -212,7 +223,7 @@ def test_hand_written_connector_is_not_overwritten(pinned):
 def test_size_limit_fails_with_diagnostic(pinned):
     gen = generate(pinned, max_bytes=500)
     assert not gen.ok and "C10" in gen.errors[0] and "over the 500-byte limit" in gen.errors[0]
-    assert "largest paths" in gen.errors[0] and not (connector_dir(pinned) / DEFINITION_FILE).exists()
+    assert "largest paths" in gen.errors[0] and not (connector_dir(pinned, "OrderHandling") / DEFINITION_FILE).exists()
 
 
 def test_cli_connector_generate(pinned, capsys):
@@ -222,7 +233,9 @@ def test_cli_connector_generate(pinned, capsys):
     assert "would-create" in capsys.readouterr().out
     assert main(["connector", "generate", "--package", "ifs-orders", "--output", "json"]) == 0
     data = json.loads(capsys.readouterr().out)
-    assert data["ok"] and len(data["operations"]) == 4 and data["size"]["limit"] == 1_000_000
+    [connector] = data["connectors"]
+    assert data["ok"] and connector["projection"] == "OrderHandling" and len(connector["operations"]) == 4
+    assert connector["size"]["limit"] == 1_000_000
     assert main(["connector", "generate", "--package", "ifs-orders", "--check"]) == 0
 
 
@@ -298,3 +311,21 @@ def test_bound_function_matches_equivalent_route():
     assert (path, how) == (f"/LineSet/{NS}.Line_Default()", "bound-equivalent")
     with pytest.raises(GenerationRefused, match="not in the pinned"):
         match_spec(_op(f"/OrderSet/{NS}.Other_Default()"), document, edmx)
+
+
+def test_previous_single_connector_folder_is_removed_only_if_generated(pinned):
+    from ifs_agent_ops.generators.connector import legacy_connector_dir
+
+    legacy = legacy_connector_dir(pinned)
+    legacy.mkdir(parents=True, exist_ok=True)
+    for name in FILES:
+        (legacy / name).write_text("# Generated by ifs-agent-ops connector generator v1\n" if name == MAP_FILE
+                                   else "{}", encoding="utf-8")
+    gen = generate(pinned, check=True)
+    assert [r.action for r in gen.results].count("would-remove") == 4 and (legacy / MAP_FILE).exists()
+    gen = generate(pinned)
+    assert [r.action for r in gen.results].count("removed") == 4 and not legacy.exists()
+
+    legacy.mkdir()
+    (legacy / DEFINITION_FILE).write_text('{"hand": "made"}', encoding="utf-8")   # no map: not ours
+    assert generate(pinned).ok and (legacy / DEFINITION_FILE).exists()

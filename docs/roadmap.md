@@ -122,34 +122,38 @@ operations/workflows -> agent generator      -> agent/<agent>/*              -> 
 
 ### 3.1 Package: deployment intent (environment-independent)
 
-A future `deploy.yaml` in the package declares *what should exist*, by logical name only:
+`deploy.yaml` in the package declares *what should exist*, by logical name only. The Power Platform
+section is implemented (Phase 10, `ifs-agent-ops deploy init|check`); flows and agents are added in
+Phases 12-13:
 
 ```yaml
 power_platform:
   solution:
-    unique_name: IfsCustomerOrders        # stable; derived from the package name once, then fixed
-    publisher_prefix: ifsops
+    unique_name: IfsCustomerOrders        # stable once deployed
+    display_name: IFS Customer Orders
+    publisher: TietexAdmin                # an existing publisher's unique name
+    prefix: ti                            # that publisher's customization prefix
   connectors:
-    - logical_name: ifs-customer-orders   # maps to power-platform/connector/
-      operation_ids: operation-ids.yaml   # stable operationId map (see 3.4)
-  flows:
-    - logical_name: dispatch-customer-order
-      source: power-platform/flows/dispatch-customer-order.json
-  connection_references:
-    - logical_name: ifsops_IfsCustomerOrders   # connector -> resolved per target
-      connector: ifs-customer-orders
+    - logical_name: ifs-customer-orders
+      display_name: IFS Customer Orders
+      source: power-platform/connector    # generated files; operation-ids.yaml keeps operationIds stable (3.4)
+      host_from: ti_IFSDomain             # deployed host = @environmentVariables("ti_IFSDomain")
   environment_variables:
-    - schema_name: ifsops_IfsBaseUrl
+    - schema_name: ti_IFSDomain           # included in the solution; created only if missing
+      display_name: IFSDomain
       type: string
-      description: IFS projection base URL as seen through the gateway
-agents:
-  - logical_name: customer-order-assistant
-    source: agent/customer-order-assistant/   # Agents Toolkit / WIQD project
-    actions:
-      - api_plugin: dispatch-customer-order   # OpenAPI action -> the flow's authenticated HTTP trigger
-        endpoint_from: flows.dispatch-customer-order.trigger_url   # resolved per target at deploy
-        auth: oauth-plugin-vault              # registration reference held in the target, not here
+      description: The domain of the URL for our IFS instance
+  connection_references:
+    - logical_name: ti_IfsCustomerOrders  # the connection itself is created by a person, per environment
+      display_name: IFS Customer Orders
+      connector: ifs-customer-orders
+# later (Phases 12-13):
+#   flows: [{logical_name: dispatch-customer-order, source: power-platform/flows/dispatch-customer-order.json}]
+#   agents: [{logical_name: customer-order-assistant, source: agent/customer-order-assistant/, ...}]
 ```
+
+The IFS host is neither in the package nor in the target file: it is the value of the environment variable in
+each environment. Promotion beyond the development environment stays with Power Platform Pipelines.
 
 ### 3.2 Toolkit home: targets (environment-specific, never committed to a package)
 

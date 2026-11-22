@@ -10,7 +10,7 @@ Layout::
     ├── operations/                                 canonical operation definitions
     ├── workflows/
     ├── agent/skills/   agent/instructions/
-    ├── power-platform/connector/
+    ├── power-platform/connectors/<Projection>/   one custom connector per IFS service
     └── dispatcher/
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ _KNOWN_KEYS = {"name", "display_name", "version", "description", "projections", 
 # Machine-local folder inside a package (deployed-state caches, local runs). Never committed.
 LOCAL_STATE_DIR = ".ifs-agent-ops"
 LAYOUT_DIRS = ("recordings", "metadata", "operations", "workflows", "agent/skills", "agent/instructions",
-               "power-platform/connector", "dispatcher")
+               "power-platform/connectors", "dispatcher")
 
 PACKAGE_GITIGNORE = """\
 # Raw captures never enter a package repo: import them with `ifs-agent-ops record import`,
