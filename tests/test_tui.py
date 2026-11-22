@@ -85,25 +85,20 @@ def test_tui_approves_operations_then_the_capability_through_the_dialog(ready): 
 
             await pilot.press("o")                                       # approve the operations it uses
             await until(pilot, lambda: isinstance(app.screen, ApprovalDialog), "the approval dialog")
-            dialog = app.screen
-            dialog.query_one("#in-code", Input).value = "WRONG1"
-            await pilot.click("#approve")
-            assert "code does not match" in str(dialog.query_one("#problem", Static).render())
-            assert isinstance(app.screen, ApprovalDialog)                # refused: still open, nothing approved
+            await pilot.press("escape")                                  # cancel: nothing approved
+            await until(pilot, lambda: not isinstance(app.screen, ApprovalDialog), "the dialog to close")
             assert all(load_operations(ready)[o].status != "approved" for o in USED)
 
-            dialog.query_one("#in-code", Input).value = dialog.code.lower()
-            dialog.query_one("#in-code", Input).focus()
-            await pilot.press("enter")                                   # Enter in the code field approves
+            await pilot.press("o")
+            await until(pilot, lambda: isinstance(app.screen, ApprovalDialog), "the approval dialog again")
+            await pilot.press("enter")                                   # Approve has focus: Enter approves
             await until(pilot, lambda: not screen.caps["create-order"].unapproved_operations, "the refresh")
             ops = load_operations(ready)
             assert all(ops[o].status == "approved" and ops[o].approval.approved_by == "Pat Reviewer" for o in USED)
 
-            await pilot.press("a")                                       # approve the capability
+            await pilot.press("A")                                       # Caps Lock on: A approves too
             await until(pilot, lambda: isinstance(app.screen, ApprovalDialog), "the capability dialog")
-            dialog = app.screen
-            dialog.query_one("#in-code", Input).value = dialog.code
-            await pilot.click("#approve")
+            await pilot.press("enter")
             await until(pilot, lambda: screen.caps["create-order"].approval_current, "the capability approval")
             assert load_capabilities(ready)["create-order"].approval.approved_by == "Pat Reviewer"
 

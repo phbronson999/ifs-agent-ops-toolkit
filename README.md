@@ -253,8 +253,9 @@ ifs-agent-ops connector generate --package ifs-customer-orders   # Power Platfor
 
 `--check` reports what would change without writing anything.
 
-Both approve commands only run in an interactive terminal: they show a one-time code and ask you to type
-it back. Your git `user.name` (or your Windows login) is recorded as the reviewer. They refuse to run from
+In the TUI you approve from a confirmation dialog: review it and press Enter. The CLI approve commands only
+run in an interactive terminal and ask you to type back a one-time code shown on screen, because an agent could
+run them. Your git `user.name` (or your Windows login) is recorded as the reviewer. They refuse to run from
 a script or from Claude, because a person must approve. Claude can run the drafts and reviews and walk you through the reports.
 
 ## Design Principles

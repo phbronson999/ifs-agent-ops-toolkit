@@ -297,6 +297,14 @@ def cmd_operations(args: argparse.Namespace) -> int:
             print(service.list_summary(package))
         elif args.operations_command == "show":
             print(service.show(package, args.operation))
+        elif args.operations_command == "redraft":
+            try:
+                op = service.redraft(package, args.operation)
+            except ValueError as exc:
+                print(f"refused: {exc}", file=sys.stderr)
+                return 1
+            print(f"redrafted {op.id}: revision {op.revision}, back to draft; review and approve it again "
+                  "(capabilities that use it need re-approval too)")
         elif args.operations_command == "validate":
             if args.output == "json":
                 from dataclasses import asdict
@@ -821,6 +829,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     depth.add_argument("--full", action="store_true", help="add every response field, composite members and every "
                                                            "finding ungrouped")
     _add_output(o_rev)
+    o_redraft = ops.add_parser("redraft", help="re-derive a DRIFTED approved operation from the current recordings "
+                                               "(back to draft: review and approve it again)")
+    o_redraft.add_argument("operation")
+    o_redraft.add_argument("--package", required=True)
     o_appr = ops.add_parser("approve", help="technical approval by a human (interactive terminal only)")
     o_appr.add_argument("operation", nargs="?", help="one operation id (individual review)")
     o_appr.add_argument("--capability", help="approve every operation the capability uses, in one ceremony")

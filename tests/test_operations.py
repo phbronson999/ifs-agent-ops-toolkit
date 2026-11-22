@@ -244,6 +244,19 @@ def test_redraft_bumps_revision_of_drafts_and_reports_drift_for_approved(pkg):
     assert ops["OrderHandling.update.OrderSet"].status == "approved"
     assert len(ops["OrderHandling.update.OrderSet"].body) == 1  # approved operation left untouched
 
+    # a human redrafts the drifted operation: new content, next revision, back to draft, human text kept
+    op = ops["OrderHandling.update.OrderSet"]
+    save_operation(pkg, op.model_copy(update={"title": "Update an order", "review_notes": ["kept"]}))
+    with pytest.raises(ValueError, match="drafting already updates it"):
+        service.redraft(pkg, "OrderHandling.create.OrderSet")          # a draft: plain drafting covers it
+    redrafted = service.redraft(pkg, "OrderHandling.update.OrderSet")
+    assert redrafted.status == "draft" and redrafted.approval is None and redrafted.revision == op.revision + 1
+    assert len(redrafted.body) == 2 and redrafted.title == "Update an order" and redrafted.review_notes == ["kept"]
+    assert redrafted.connector_operation_id == op.connector_operation_id
+    approve(pkg, "OrderHandling.update.OrderSet")
+    with pytest.raises(ValueError, match="has not drifted"):
+        service.redraft(pkg, "OrderHandling.update.OrderSet")
+
 
 # ── validation and approval ─────────────────────────────────────────────────
 

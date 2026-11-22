@@ -1,14 +1,13 @@
 """Guided review and approval TUI: pick a package, then follow the path from recording to generation.
 
-Screens: package picker -> package (tabs: Overview, Recordings, Operations, Capabilities, Generate).
-Approvals use the same rules as the CLI (``operations.approval``, ``approve_capability``) and the same
-human confirmation: a one-time code shown only on screen and typed back; the reviewer's name is taken
-from git (``user.name``) or the OS login.
+Screens: package picker -> package (tabs: Overview, Recordings, Operations, Capabilities, Testing, Generate).
+Approvals use the same rules as the CLI (``operations.approval``, ``approve_capability``). The TUI confirms with
+a dialog (Enter approves): an agent cannot drive it, so no code is typed here; the CLI keeps the one-time code.
+The reviewer's name is taken from git (``user.name``) or the OS login. Letter keys work with Caps Lock on.
 """
 from __future__ import annotations
 
 import io
-import secrets
 import textwrap
 from collections import Counter
 from collections.abc import Callable
@@ -27,7 +26,6 @@ from textual.widgets import (
     DataTable,
     Footer,
     Header,
-    Input,
     Label,
     OptionList,
     Static,
@@ -195,14 +193,16 @@ class ConfirmDialog(ModalScreen[bool]):
 
 
 class ApprovalDialog(ModalScreen[str | None]):
-    """The human approval gate: the one-time code shown here and typed back (Enter approves).
-    Returns the reviewer's name (git user.name, else the OS login), or None when canceled."""
+    """The human approval gate in the TUI: review what is being approved, then Enter (or Approve) confirms.
+
+    No code is typed here: an agent cannot drive the TUI, so a person at the keyboard is already the gate.
+    (The CLI approve commands, which an agent could run, keep the one-time code.) Returns the reviewer's name
+    (git user.name, else the OS login), or None when canceled."""
     BINDINGS: ClassVar[list[Binding]] = [Binding("escape", "cancel", "Cancel")]
 
     def __init__(self, title: str, meaning: str, details: str | Text, reviewer: str) -> None:
         super().__init__()
         self.title_text, self.meaning, self.details, self.reviewer = title, meaning, details, reviewer
-        self.code = secrets.token_hex(3).upper()
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog approval"):
@@ -210,23 +210,17 @@ class ApprovalDialog(ModalScreen[str | None]):
             yield Static(self.meaning, classes="dialog-text")
             with VerticalScroll(classes="dialog-body"):
                 yield Static(self.details)
-            yield Static(Text.assemble("One-time confirmation code: ", (self.code, "bold reverse"),
-                                       ("   approving as ", "dim"), self.reviewer), id="code")
-            yield Input(placeholder="Type the confirmation code, then Enter", id="in-code")
-            yield Static("", id="problem")
+            yield Static(Text.assemble(("Approving as ", "dim"), self.reviewer,
+                                       ("   Enter approves, Esc cancels", "dim")), id="code")
             with Horizontal(classes="dialog-buttons"):
                 yield Button("Approve", variant="success", id="approve")
                 yield Button("Cancel", id="cancel")
 
     def on_mount(self) -> None:
-        self.query_one("#in-code", Input).focus()
+        self.query_one("#approve", Button).focus()
 
-    @on(Input.Submitted)
     @on(Button.Pressed, "#approve")
     def submit(self) -> None:
-        if self.query_one("#in-code", Input).value.strip().upper() != self.code:
-            self.query_one("#problem", Static).update(Text("The confirmation code does not match.", style="bold red"))
-            return
         self.dismiss(self.reviewer)
 
     @on(Button.Pressed, "#cancel")
@@ -302,17 +296,18 @@ TEST_STYLE = {"passed": "green", "failed": "bold red", "inconclusive": "yellow",
 class PackageScreen(Screen):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "back", "Packages"),
-        Binding("r", "refresh", "Refresh"),
-        Binding("d", "draft", "Draft operations"),
-        Binding("f", "filter", "Filter"),
-        Binding("a", "approve", "Approve"),
-        Binding("o", "approve_operations", "Approve its operations"),
-        Binding("w", "write_review", "Review report"),
-        Binding("g", "generate", "Generate"),
+        Binding("r,R", "refresh", "Refresh"),
+        Binding("d,D", "draft", "Draft operations"),
+        Binding("x,X", "redraft", "Redraft drifted"),
+        Binding("f,F", "filter", "Filter"),
+        Binding("a,A", "approve", "Approve"),
+        Binding("o,O", "approve_operations", "Approve its operations"),
+        Binding("w,W", "write_review", "Review report"),
+        Binding("g,G", "generate", "Generate"),
         *[Binding(str(i), f"tab('{t}')", t.capitalize(), show=False) for i, t in enumerate(TABS, 1)],
     ]
     # action -> tabs where it applies (others are hidden from the footer)
-    ACTION_TABS: ClassVar[dict[str, set[str]]] = {"draft": {"operations", "recordings"}, "filter": {"operations"}, "approve": {"operations",
+    ACTION_TABS: ClassVar[dict[str, set[str]]] = {"draft": {"operations", "recordings"}, "redraft": {"operations"}, "filter": {"operations"}, "approve": {"operations",
                    "capabilities"}, "approve_operations": {"capabilities"}, "write_review": {"capabilities", "testing"},
                    "generate": {"generate"}}
 
@@ -736,6 +731,34 @@ class PackageScreen(Screen):
         self.filter = FILTERS[(FILTERS.index(self.filter) + 1) % len(FILTERS)]
         self.fill_operations()
 
+    def action_redraft(self) -> None:
+        """Re-derive the selected DRIFTED approved operation from the current recordings (back to draft)."""
+        op_id = self.selected["operations"]
+        if op_id not in self.drift:
+            self.notify("Select a DRIFTED operation: only approved operations the recordings now differ from "
+                        "can be redrafted.", severity="warning")
+            return
+
+        def go(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            from ifs_agent_ops.operations import service
+
+            try:
+                op = service.redraft(self.package, op_id)
+            except (ValueError, KeyError) as exc:
+                self.app.push_screen(MessageDialog("Refused", str(exc)))
+                return
+            self.notify(f"Redrafted {op.id}: revision {op.revision}, draft. Review and approve it again.")
+            self.action_refresh()
+
+        self.app.push_screen(ConfirmDialog(
+            "Redraft a drifted operation",
+            f"{op_id}\n\nThe newer recordings differ in: {', '.join(self.drift[op_id])}.\n\nRedrafting takes the "
+            "definition derived from the current recordings, keeps your title, description, review notes and "
+            "runtime requirements, bumps the revision and puts it back to draft without an approval. Review and "
+            "approve it again; capabilities that use it need re-approval too.", "Redraft"), go)
+
     def action_draft(self) -> None:
         def go(confirmed: bool) -> None:
             if confirmed:
@@ -964,7 +987,7 @@ class OperationDetail(Screen[str | None]):
         Binding("escape", "close", "Back to list"),
         Binding("left", "step(-1)", "Previous", priority=True),
         Binding("right", "step(1)", "Next", priority=True),
-        Binding("a", "approve", "Approve"),
+        Binding("a,A", "approve", "Approve"),
     ]
 
     def __init__(self, owner: PackageScreen, index: int) -> None:
@@ -1028,8 +1051,8 @@ class ReviewApp(App):
     # declaring the palette binding here replaces Textual's default, which is a priority binding.
     COMMAND_PALETTE_BINDING: ClassVar[str] = "p"  # the footer shows this binding on its right, as "p Palette"
     BINDINGS: ClassVar[list[Binding]] = [
-        Binding("q", "quit", "Quit"),
-        Binding("p", "command_palette", "Palette", show=False, tooltip="Open the command palette"),
+        Binding("q,Q", "quit", "Quit"),
+        Binding("p,P", "command_palette", "Palette", show=False, tooltip="Open the command palette"),
     ]
     TITLE = "IFS Agent Ops"
     SUB_TITLE = "review and approval"
