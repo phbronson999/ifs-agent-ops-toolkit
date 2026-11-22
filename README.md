@@ -63,7 +63,7 @@ ifs-customer-orders/
 ├── metadata/            pinned $metadata / $openapi snapshots
 ├── operations/          canonical operations: the complete IFS API contracts (draft | approved)
 ├── workflows/           observed workflows: what the IFS web client did (evidence)
-├── capabilities/        curated capabilities: agent-facing inputs, actions and bindings (planned, Phase 7b)
+├── capabilities/        curated capabilities: agent-facing inputs, actions and bindings
 ├── agent/               skills, instructions, agent/plugin source
 ├── power-platform/      connector and flow source artifacts
 └── deploy.yaml          deployment intent: logical names, no secrets, hosts or environment IDs
@@ -320,7 +320,23 @@ approval. Each run is also saved locally under `.ifs-agent-ops/runs/`.
 
 ## Status
 
-Early development and architecture validation.
+Early development, used against a real IFS Cloud TEST environment and a Power Platform development
+environment. Phases 0–11 and 12a of the [roadmap](docs/roadmap.md) are merged:
 
-The project is evolving from my existing Python-based IFS MCP implementation that already provides IFS authentication, protected API calls, OpenAPI inspection, metadata analysis, and HAR-based workflow analysis. 
+- **Capture → operations → capability:** guided browser capture, sanitized recordings, canonical operations and
+  curated capabilities, each approved by a person.
+- **Testing with Claude:** a local test log of IFS calls and validation findings per requirement. The pilot
+  capability (`create-customer-order`) has all 13 requirements passed.
+- **Generators:** agent skills and Power Platform custom connectors (one per IFS service, Basic authentication
+  through the on-premises data gateway).
+- **Deployment:** `deploy.yaml` plus machine-local targets; `deploy plan / apply / status` reconcile a solution
+  in a development environment (idempotent); `deploy validate` checks the deployed path and records the
+  capability's runtime-validation status (the pilot is **validated** on the development target).
+
+**Next:** generated Power Automate flows for each capability action (`prepare`, `submit`), deployed into the
+same solution and validated through their HTTP triggers (Phase 12), then the Microsoft 365 agent (Phase 13).
+Promotion beyond development stays with Power Platform Pipelines.
+
+The project evolved from my Python-based IFS MCP implementation, which provides IFS authentication,
+protected API calls, OpenAPI inspection, metadata analysis and HAR-based workflow analysis:
 https://github.com/phbronson999/ifs-mcp-server-local/tree/python-port
