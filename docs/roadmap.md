@@ -4,19 +4,20 @@ This is the source of truth for the lifecycle architecture and the phased migrat
 `ifs-mcp-server-local-python`. `docs/migration-from-ifs-mcp.md` records what each completed
 phase changed; this document says where the project is going and in what order.
 
-Status at time of writing (2026-11-22): Phases 0–11, 12a and 12b merged; 12c in review.
+Status at time of writing (2026-11-22): Phases 0–12 merged; Phase 13 in review.
 
-- **Pilot:** the `create-customer-order` capability is at revision 10, approved by a human, with all 13
+- **Pilot:** the `create-customer-order` capability is at revision 11, approved by a human, with all 13
   runtime-validation requirements passed in testing against IFS (Phase 9b findings). Its runtime status is
-  **validated** on the development target, evaluated on revision 8. Revisions 9 and 10 only made bindings,
-  lookups and warnings executable; the next `deploy validate` re-evaluates.
+  **validated** on the development target, including its runtime cases through the deployed flows (12c).
 - **Deployed to the development environment:** the solution with one custom connector per IFS service (Basic
   authentication through the on-premises data gateway, host from an environment variable), the shared IFS-host
   environment variable, a connection reference with an attached connection, and (12b) the generated
   `prepare` and `submit` flows, turned on, with their trigger URLs recorded in the target. `deploy apply` is
   idempotent. `deploy validate` runs the `prepare` runtime cases through the flows (green); the `submit` case
   runs only with `--allow-writes`.
-- **Next:** Phase 13 (agent).
+- **Agent (13):** the generated declarative agent is provisioned to the development tenant (personal scope) and
+  verified end to end from Microsoft 365 Copilot through the flows to IFS.
+- **Next:** promotion (Pipelines, organization publishing) and more capabilities.
 
 The decisions recorded on 2026-11-20 are folded in: the customer-order pilot, permanent package `name`, the
 reserved `.ifs-agent-ops/` folder, and the proven agent path as the Phase 13 baseline.
@@ -314,8 +315,8 @@ Results: PASS, WARN, FAIL, NOT REQUIRED (for the capability asked about).
 | 9b | **Development loop** (merged) | test log of IFS calls made while testing with Claude; validation findings per runtime-validation requirement (`validation/<capability>.findings.yaml`, report only); evidence report and TUI Testing tab; operation redraft for drifted operations | `create-customer-order`: all 13 requirements passed against TEST |
 | 10 | **Deployment foundations + Power Platform adapter v1** (merged) | `deploy.yaml` (solution in an existing publisher, connectors, environment variables, connection references; logical names only); targets in toolkit home picked from `pac env list`; `deploy plan`/`apply`/`status`; connectors created **inside the solution by solution import** (keeps the gateway setting, which `pac connector create` drops); deployment settings file; manual-step checklist; `doctor --for power-platform` | deploy is idempotent to a DEV target (second run is a no-op): **done** |
 | 11 | **Deployed-path validation** (merged) | `deploy validate`: static, platform (deployed state matches, no manual steps left, the solution exports, `pac solution check` without critical/high issues) and runtime (calls through the deployed path go **through a flow**, so they arrive with Phase 12); status engine sets `runtime_validation.status` from findings + deployed-path checks, with an evaluation record | green on DEV; `create-customer-order` recorded **validated** |
-| 12 | **Dispatcher generator + flow deployment** | **12a (merged):** executable `record` bindings (composite records instead of prose `derived` values). **12b (merged):** one flow per capability action (`prepare`, `submit`) generated from the action's inputs, steps, bindings and outputs (not a mirror of connector parameters), following the conventions of existing solution flows; HTTP trigger restricted to specific users (listed in the target, never in the package); JSON `Response`; deployed as solution components, turned on after import, trigger URLs recorded in the target. **12c (in review):** `deploy validate` calls `prepare` through its trigger with the Azure CLI sign-in (read-only by default; `submit` only when explicitly allowed) | flow runs on DEV through the gateway |
-| 13 | **Agent artifacts + agent adapter** | Baseline is the **proven path** (§6.1): a declarative agent with an API-plugin/OpenAPI action whose endpoint is the authenticated Power Automate HTTP trigger of the Phase 12 flow, using OAuthPluginVault with Entra delegated auth. Generated into `agent/<name>/` (Agents Toolkit layout); `atk` adapter with `--env <target>`; the plugin's server URL resolved per target from the deployed flow's trigger URL; `doctor --for agents` | agent provisioned to DEV reaches IFS through the generated capability, with the same request/response as the proven hand-built agent |
+| 12 | **Dispatcher generator + flow deployment** | **12a (merged):** executable `record` bindings (composite records instead of prose `derived` values). **12b (merged):** one flow per capability action (`prepare`, `submit`) generated from the action's inputs, steps, bindings and outputs (not a mirror of connector parameters), following the conventions of existing solution flows; HTTP trigger restricted to specific users (listed in the target, never in the package); JSON `Response`; deployed as solution components, turned on after import, trigger URLs recorded in the target. **12c (merged):** `deploy validate` calls `prepare` through its trigger with the Azure CLI sign-in (read-only by default; `submit` only when explicitly allowed) | flow runs on DEV through the gateway |
+| 13 | **Agent artifacts + agent adapter** (in review) | Baseline is the **proven path** (§6.1): a declarative agent with an API-plugin/OpenAPI action whose endpoint is the authenticated Power Automate HTTP trigger of the Phase 12 flow, using OAuthPluginVault with Entra delegated auth. Generated into `agent/<name>/` (Agents Toolkit layout); `atk` adapter with `--env <target>`; the plugin's server URL resolved per target from the deployed flow's trigger URL; `doctor --for agents` | agent provisioned to DEV reaches IFS through the generated capability, with the same request/response as the proven hand-built agent |
 | 14 | **Promotion and CI readiness** | only artifacts whose capability is runtime `validated` (or `conditional`, within its recorded scope) may be promoted; managed solution versions, `promote` via Pipelines/`pac pipeline deploy`, agent version promotion, service-principal auth paths, release records | DEV → TEST promotion reproducible from CLI |
 
 ### 6.2 Approval is not runtime validation

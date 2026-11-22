@@ -363,6 +363,33 @@ failed, otherwise **conditional** (or **untested**). The reason is recorded unde
 the change is a few lines in the capability file, for you to review and commit. Validation never changes an
 approval. Each run is also saved locally under `.ifs-agent-ops/runs/`.
 
+## The Microsoft 365 agent
+
+One declarative agent per package calls the capabilities through their flows. This is the path proven by hand:
+declarative agent, API plugin (OpenAPI, `OAuthPluginVault` with Entra sign-in), the flows' HTTP triggers,
+connector, on-premises gateway, IFS. Each capability action is one plugin function. `prepare` runs without
+asking. `submit` writes, so Copilot asks before calling it, and the generated instructions only call it after
+the user confirmed the proposal.
+
+```powershell
+ifs-agent-ops agent generate --package ifs-customer-orders           # agent/m365-agent/ (Agents Toolkit project)
+ifs-agent-ops agent render   --package ifs-customer-orders --target dev
+cd "$HOME\.ifs-agent-ops\agents\ifs-customer-orders\dev"
+atk provision --env dev                                               # signs in; asks for the Entra app's client id and secret
+ifs-agent-ops doctor --for agents
+```
+
+The package holds the project with placeholders. `render` fills in the target's values in a machine-local copy:
+the flows' server and trigger paths (recorded by `deploy apply`) and the sign-in tenant. Optional settings go
+under `agent:` in the target file: `tenant_id`, `scope` (`personal` or `shared`), `app_name_suffix` and
+`developer`. The Agents Toolkit keeps the app id and the OAuth registration id in that copy's env file, and
+later renders keep them.
+
+The app version comes from the package version with the major number raised by one, because Microsoft rejects
+versions that start with 0. `render` also raises the patch number whenever the rendered app package changed, so
+a published update always has a higher version. Install the CLI with
+`npm install -g @microsoft/m365agentstoolkit-cli` (Node 20.19+ or 22.12+).
+
 ## Design Principles
 
 - Define an operation once and generate dependent artifacts from it.
@@ -379,23 +406,25 @@ approval. Each run is also saved locally under `.ifs-agent-ops/runs/`.
 ## Status
 
 Early development, used against a real IFS Cloud TEST environment and a Power Platform development
-environment. Phases 0–11, 12a and 12b of the [roadmap](docs/roadmap.md) are merged, and 12c is in review:
+environment. Phases 0–12 of the [roadmap](docs/roadmap.md) are merged, and Phase 13 is in review:
 
 - **Capture → operations → capability:** guided browser capture, sanitized recordings, canonical operations and
   curated capabilities, each approved by a person.
 - **Testing with Claude:** a local test log of IFS calls and validation findings per requirement. The pilot
   capability (`create-customer-order`) has all 13 requirements passed.
 - **Generators:** agent skills, Power Platform custom connectors (one per IFS service, Basic authentication
-  through the on-premises data gateway) and Power Automate flows (one per capability action).
+  through the on-premises data gateway), Power Automate flows (one per capability action) and a Microsoft
+  365 declarative agent (one per package).
 - **Deployment:** `deploy.yaml` plus machine-local targets; `deploy plan / apply / status` reconcile a solution
   in a development environment (idempotent); `deploy validate` checks the deployed path and records the
   capability's runtime-validation status (the pilot is **validated** on the development target).
 
-The pilot's `prepare` and `submit` flows are deployed to the development environment, and `deploy validate`
-runs the pilot's runtime cases through them.
+The pilot runs end to end on the development environment, from Microsoft 365 Copilot through the agent, the
+flows, the connector and the gateway to IFS and back. `deploy validate` runs the pilot's runtime cases through
+the flows.
 
-**Next:** the Microsoft 365 agent (Phase 13).
-Promotion beyond development stays with Power Platform Pipelines.
+**Next:** promotion beyond development (Power Platform Pipelines for the solution, organization publishing for
+the agent) and more capabilities.
 
 The project evolved from my Python-based IFS MCP implementation, which provides IFS authentication,
 protected API calls, OpenAPI inspection, metadata analysis and HAR-based workflow analysis:

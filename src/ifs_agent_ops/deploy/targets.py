@@ -12,6 +12,12 @@
       - maker@contoso.example
     flow_triggers:                                       # written by deploy apply: flow name -> trigger URL
       CreateCustomerOrder_Prepare: https://...
+    agent:                                               # Microsoft 365 agent (Phase 13), all optional
+      tenant_id: 00000000-0000-0000-0000-000000000000    # default: the Azure CLI sign-in tenant
+      scope: personal                                    # who sees the provisioned agent: personal | shared
+      app_name_suffix: " (dev)"
+      developer: {name: Contoso, email: dev@contoso.example, website_url: https://contoso.example,
+                  privacy_url: https://contoso.example/privacy, terms_url: https://contoso.example/terms}
 
 No credentials: pac holds the sign-in, and connections (with the IFS credentials and the gateway) are made by
 a person in the environment.
@@ -44,6 +50,7 @@ class Target:
     variables: dict[str, str] = field(default_factory=dict)
     trigger_users: list[str] = field(default_factory=list)
     flow_triggers: dict[str, str] = field(default_factory=dict)
+    agent: dict = field(default_factory=dict)        # tenant_id, scope, app_name_suffix, developer {...}
 
     @property
     def settings_path(self) -> Path:
@@ -82,7 +89,8 @@ def load_target(package: str, name: str) -> Target:
         raise TargetError(f"{path}: flow_triggers must be a mapping of flow name to trigger URL")
     return Target(package, name, path, str(pp["environment"]), str(pp["environment_id"]),
                   str(pp["environment_url"]).rstrip("/"), {str(k): str(v) for k, v in variables.items()},
-                  [u.strip() for u in users], {str(k): str(v) for k, v in triggers.items()})
+                  [u.strip() for u in users], {str(k): str(v) for k, v in triggers.items()},
+                  dict(data.get("agent") or {}))
 
 
 def record_flow_triggers(target: Target, triggers: dict[str, str]) -> bool:
