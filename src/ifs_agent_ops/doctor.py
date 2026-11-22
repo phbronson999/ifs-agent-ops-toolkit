@@ -278,7 +278,8 @@ def check_power_platform() -> list[Check]:
     pac = _run(["pac", "help"])
     if pac is None:
         out.append(Check(c, "pac", FAIL, "Power Platform CLI not found",
-                         "dotnet tool install --global Microsoft.PowerApps.CLI.Tool (or the MSI / VS Code extension)"))
+                         "winget install Microsoft.PowerAppsCLI, then pac install latest (or: dotnet tool install --global "
+                         "Microsoft.PowerApps.CLI.Tool)"))
     else:
         v = re.search(r"Version:\s*([\d.]+\S*)", pac)
         out.append(Check(c, "pac", PASS, f"Power Platform CLI {v.group(1) if v else '(version unknown)'}"))
@@ -290,7 +291,63 @@ def check_power_platform() -> list[Check]:
     dotnet = _run(["dotnet", "--version"])
     out.append(Check(c, "dotnet", PASS if dotnet else WARN, (dotnet or "not found").strip(),
                      "" if dotnet else "needed only for the .NET tool install of pac (.NET 10 recommended)"))
-    out.append(Check(c, "deployment targets", NOT_REQUIRED, "target checks arrive with Phase 10 (deployment)"))
+    out += _deployment_targets(c, pac is not None)
+    return out
+
+
+def _deployment_targets(c: str, have_pac: bool) -> list[Check]:
+    """Packages with a deploy.yaml: each needs a target, and each target's environment must be visible to pac."""
+    import json
+
+    from ifs_agent_ops.deploy.intent import IntentError, load_intent
+    from ifs_agent_ops.deploy.targets import TargetError, list_targets, load_target
+    from ifs_agent_ops.workspace.discovery import discover_packages
+
+    packages = []
+    for pkg in discover_packages()[0]:
+        try:
+            intent = load_intent(pkg)
+        except IntentError as exc:
+            packages.append((pkg, None, str(exc)))
+            continue
+        if intent is not None and intent.power_platform is not None:
+            packages.append((pkg, intent, ""))
+    if not packages:
+        return [Check(c, "deployment targets", NOT_REQUIRED, "no package declares Power Platform deployment "
+                      "(deploy.yaml)")]
+    visible: Optional[set[str]] = None
+    if have_pac:
+        text = _run(["pac", "env", "list", "--json"], timeout=60) or ""
+        try:
+            envs = json.loads(text[text.index("["):text.rindex("]") + 1])
+            visible = {e.get("EnvironmentIdentifier", {}).get("Id", "").lower() for e in envs}
+        except ValueError:
+            visible = None
+    out = []
+    for pkg, intent, problem in packages:
+        if intent is None:
+            out.append(Check(c, f"{pkg.name} deploy.yaml", FAIL, problem,
+                             f"ifs-agent-ops deploy check --package {pkg.name}"))
+            continue
+        names = list_targets(pkg.name)
+        if not names:
+            out.append(Check(c, f"{pkg.name} targets", WARN, "no deployment target",
+                             f"ifs-agent-ops targets init --package {pkg.name} --target dev"))
+        for name in names:
+            label = f"{pkg.name} target {name}"
+            try:
+                t = load_target(pkg.name, name)
+            except TargetError as exc:
+                out.append(Check(c, label, FAIL, str(exc), f"fix or recreate {name} with targets init"))
+                continue
+            if visible is None:
+                out.append(Check(c, label, WARN, f"{t.environment}: not checked (pac unavailable or not signed in)",
+                                 "pac auth create"))
+            elif t.environment_id.lower() in visible:
+                out.append(Check(c, label, PASS, f"{t.environment} reachable"))
+            else:
+                out.append(Check(c, label, FAIL, f"{t.environment} is not visible to the signed-in pac profile",
+                                 "pac auth create (an account with access), or recreate the target"))
     return out
 
 

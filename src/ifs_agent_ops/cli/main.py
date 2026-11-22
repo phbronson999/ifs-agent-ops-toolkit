@@ -637,6 +637,8 @@ def cmd_deploy(args: argparse.Namespace) -> int:
         path.write_text(text, encoding="utf-8", newline="\n")
         print(f"created {path}\nReview it, then run: ifs-agent-ops deploy check --package {package.name}")
         return 0
+    if args.deploy_command in ("plan", "apply", "status"):
+        return _deploy_target(args, package)
     # check
     try:
         intent = di.load_intent(package)
@@ -659,6 +661,109 @@ def cmd_deploy(args: argparse.Namespace) -> int:
         if not errors:
             print(f"OK    {path}" + (f" ({len(warnings)} warning(s))" if warnings else ""))
     return 1 if errors else 0
+
+
+def _deploy_target(args: argparse.Namespace, package) -> int:
+    """deploy plan | apply | status against a target environment (Power Platform)."""
+    import json
+    from dataclasses import asdict
+
+    from ifs_agent_ops.deploy import powerplatform as ppa
+    from ifs_agent_ops.deploy.intent import IntentError, load_intent
+    from ifs_agent_ops.deploy.targets import TargetError, load_target
+
+    try:
+        target = load_target(package.name, args.target)
+        intent = load_intent(package)
+        if args.deploy_command == "apply":
+            current = ppa.plan(intent, package, target)
+            print("\n".join(ppa.describe(current)))
+            if not current.changes:
+                result = ppa.apply(intent, package, target)
+            else:
+                if not args.yes:
+                    if not _is_interactive():
+                        print("error: deploy apply changes the target environment; rerun in a terminal to confirm, "
+                              "or pass --yes", file=sys.stderr)
+                        return 2
+                    if _ask(f"Deploy {len(current.changes)} change(s) to {target.environment}? [y/N] ").strip().lower() \
+                            not in ("y", "yes"):
+                        print("Canceled; nothing changed.")
+                        return 1
+                result = ppa.apply(intent, package, target)
+                print(f"Imported solution version(s): {', '.join(result.imported) or '-'}"
+                      + (f"; added to the solution: {', '.join(result.added)}" if result.added else ""))
+                print("Verified: " + ppa.describe(result.after)[-1])
+            if result.settings_path:
+                print(f"Deployment settings file: {result.settings_path}")
+            steps = ppa.checklist(result.after)
+        else:
+            current = ppa.plan(intent, package, target)
+            if args.json:
+                print(json.dumps({**{k: v for k, v in asdict(current).items() if k != "items"},
+                                  "items": [asdict(i) for i in current.items],
+                                  "changes": len(current.changes)}, indent=2))
+                return 0 if args.deploy_command == "status" or not current.changes else 1
+            print("\n".join(ppa.describe(current)))
+            steps = ppa.checklist(current)
+    except (TargetError, IntentError, ppa.DeployError, ppa.PacError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if steps:
+        print("\nManual steps (a person does these in the environment):")
+        for n, step in enumerate(steps, 1):
+            print(f"  {n}. {step}")
+    return 0
+
+
+def cmd_targets(args: argparse.Namespace) -> int:
+    """Deployment targets: machine-local files naming the environment a package deploys to."""
+    from ifs_agent_ops.deploy import targets as tg
+    from ifs_agent_ops.deploy.pac import Pac, PacError
+    from ifs_agent_ops.workspace.discovery import find_package
+    from ifs_agent_ops.workspace.package import PackageError
+
+    try:
+        package = find_package(args.package)
+    except PackageError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        if args.targets_command == "list":
+            names = tg.list_targets(package.name)
+            print("\n".join(names) if names else f"no targets for {package.name} (ifs-agent-ops targets init "
+                                                 f"--package {package.name} --target dev)")
+            return 0
+        if args.targets_command == "show":
+            path = tg.load_target(package.name, args.target).path
+            print(f"# {path}\n" + path.read_text(encoding="utf-8"))
+            return 0
+        variables = {}
+        for item in args.var:
+            name, sep, value = item.partition("=")
+            if not sep or not name:
+                raise tg.TargetError(f"--var {item!r}: use NAME=VALUE")
+            variables[name.strip()] = value
+        environments = Pac().environments()
+        if args.environment:
+            env = tg.match_environment(environments, args.environment)
+        else:
+            if not _is_interactive():
+                names = ", ".join(e.get("FriendlyName", "?") for e in environments)
+                raise tg.TargetError(f"pass --environment (one of: {names})")
+            for n, e in enumerate(environments, 1):
+                print(f"  {n}. {e.get('FriendlyName')}  {e.get('EnvironmentUrl')}")
+            choice = _ask("Environment number: ").strip()
+            if not choice.isdigit() or not 1 <= int(choice) <= len(environments):
+                raise tg.TargetError("no environment chosen")
+            env = environments[int(choice) - 1]
+        path = tg.write_target(package.name, args.target, env, variables)
+    except (tg.TargetError, PacError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"created {path} ({env.get('FriendlyName')})\n"
+          f"Next: ifs-agent-ops deploy plan --package {package.name} --target {args.target}")
+    return 0
 
 
 def cmd_capture(args: argparse.Namespace) -> int:
@@ -956,6 +1061,30 @@ def main(argv: Optional[list[str]] = None) -> int:
     d_check = dep.add_parser("check", help="validate deploy.yaml against itself and the package (read-only)")
     d_check.add_argument("--package", required=True)
     d_check.add_argument("--json", action="store_true")
+    for name, text in (("plan", "what deploying would change in the target environment (read-only)"),
+                       ("apply", "deploy: import the solution with what differs, then verify (changes the target)"),
+                       ("status", "what is deployed, what differs, and the manual steps left (read-only)")):
+        sp = dep.add_parser(name, help=text)
+        sp.add_argument("--package", required=True)
+        sp.add_argument("--target", required=True, help="target name (see: ifs-agent-ops targets list)")
+        if name == "apply":
+            sp.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+        else:
+            sp.add_argument("--json", action="store_true")
+
+    tgt = sub.add_parser("targets", help="deployment targets (machine-local, never committed)"
+                         ).add_subparsers(dest="targets_command", required=True)
+    t_init = tgt.add_parser("init", help="create a target: pick a Power Platform environment from `pac env list`")
+    t_init.add_argument("--package", required=True)
+    t_init.add_argument("--target", required=True, help="target name, e.g. dev")
+    t_init.add_argument("--environment", help="environment display name, id or URL (default: pick from a list)")
+    t_init.add_argument("--var", action="append", default=[], metavar="NAME=VALUE",
+                        help="non-secret environment variable value for this target (repeatable)")
+    t_list = tgt.add_parser("list", help="targets of a package")
+    t_list.add_argument("--package", required=True)
+    t_show = tgt.add_parser("show", help="one target")
+    t_show.add_argument("--package", required=True)
+    t_show.add_argument("--target", required=True)
 
     args = parser.parse_args(argv)
     load_env()
@@ -966,6 +1095,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_validation(args)
     if args.command == "deploy":
         return cmd_deploy(args)
+    if args.command == "targets":
+        return cmd_targets(args)
 
     if args.command == "package":
         return cmd_package(args)
