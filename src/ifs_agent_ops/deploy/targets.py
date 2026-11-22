@@ -8,6 +8,10 @@
       environment_url: https://example.crm.dynamics.com
     environment_variables:                               # optional, non-secret values; used when a variable
       ti_IFSDomain: ifs.example.com                      # is created and in the deployment settings file
+    flow_trigger_users:                                  # who may call the generated flows' HTTP triggers
+      - maker@contoso.example
+    flow_triggers:                                       # written by deploy apply: flow name -> trigger URL
+      CreateCustomerOrder_Prepare: https://...
 
 No credentials: pac holds the sign-in, and connections (with the IFS credentials and the gateway) are made by
 a person in the environment.
@@ -38,6 +42,8 @@ class Target:
     environment_id: str
     environment_url: str
     variables: dict[str, str] = field(default_factory=dict)
+    trigger_users: list[str] = field(default_factory=list)
+    flow_triggers: dict[str, str] = field(default_factory=dict)
 
     @property
     def settings_path(self) -> Path:
@@ -68,8 +74,31 @@ def load_target(package: str, name: str) -> Target:
     variables = data.get("environment_variables") or {}
     if not isinstance(variables, dict):
         raise TargetError(f"{path}: environment_variables must be a mapping of schema name to value")
+    users = data.get("flow_trigger_users") or []
+    if not isinstance(users, list) or not all(isinstance(u, str) and "@" in u for u in users):
+        raise TargetError(f"{path}: flow_trigger_users must be a list of sign-in names (user@domain)")
+    triggers = data.get("flow_triggers") or {}
+    if not isinstance(triggers, dict):
+        raise TargetError(f"{path}: flow_triggers must be a mapping of flow name to trigger URL")
     return Target(package, name, path, str(pp["environment"]), str(pp["environment_id"]),
-                  str(pp["environment_url"]).rstrip("/"), {str(k): str(v) for k, v in variables.items()})
+                  str(pp["environment_url"]).rstrip("/"), {str(k): str(v) for k, v in variables.items()},
+                  [u.strip() for u in users], {str(k): str(v) for k, v in triggers.items()})
+
+
+def record_flow_triggers(target: Target, triggers: dict[str, str]) -> bool:
+    """Write the deployed flows' trigger URLs into the target file (keeps its header comments). Returns True
+    when the file changed."""
+    if triggers == target.flow_triggers:
+        return False
+    text = target.path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    header = "".join(ln for ln in lines[:next((i for i, ln in enumerate(lines) if not ln.startswith("#")),
+                                              len(lines))])
+    data = yaml.safe_load(text) or {}
+    data["flow_triggers"] = dict(sorted(triggers.items()))
+    target.path.write_text(header + yaml.safe_dump(data, sort_keys=False), encoding="utf-8", newline="\n")
+    target.flow_triggers = dict(triggers)
+    return True
 
 
 def list_targets(package: str) -> list[str]:

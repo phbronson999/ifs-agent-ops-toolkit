@@ -68,7 +68,27 @@ def _source_text(src: Source) -> str:
             text += " (" + ", ".join(src.record.keep + [m + "?" for m in src.record.keep_if_present]) + ")"
     else:
         text = f"{kind} `{getattr(src, kind)}`" + (f" ({src.transform})" if src.transform else "")
+    if src.match and src.match != "eq":
+        text += f" ({MATCH_TEXT[src.match]})"
     return text + (f" (note: {_one_line(src.note)})" if src.note else "")
+
+
+MATCH_TEXT = {
+    "ne": "excluded: not equal",
+    "contains": "contains, case-insensitive",
+    "words": "word search: every word contained, case-insensitive; words that match nothing on their own are "
+             "dropped and the rest searched again; if still nothing, any of the words",
+}
+
+
+def warning_condition_text(when) -> str:
+    if when is None:
+        return ""
+    if isinstance(when, str):
+        return when
+    if "equals" in when.model_fields_set:
+        return f"{when.field} is {when.equals!r}"
+    return f"{when.field} is not {when.not_equals!r}"
 
 
 def _when_text(when: dict) -> str:
@@ -151,7 +171,7 @@ def _results(cap: Capability) -> list[str]:
         out += [f"| `{o.name}` | {_cell(o.description or f'{o.step}.{o.field}')} |" for o in cap.outputs]
         out.append("")
     for w in cap.warnings:
-        where = f"step `{w.step}`" + (f" when {w.when}" if w.when else "") if w.source == "step" else "IFS"
+        where = f"step `{w.step}`" + (f" when {warning_condition_text(w.when)}" if w.when else "") if w.source == "step" else "IFS"
         out.append(f"- Warning ({where}): {_one_line(w.meaning)}")
     for e in cap.errors:
         cond = ", ".join(f"{k} {v}" for k, v in e.when.items())

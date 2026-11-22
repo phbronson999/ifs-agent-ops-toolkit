@@ -124,7 +124,7 @@ def _platform(run: Run, intent: DeployIntent, package: Package, target: Target, 
     add = run.checks.append
     try:
         plan = ppa.plan(intent, package, target, pac)
-    except (ppa.DeployError, PacError) as exc:
+    except (ppa.DeployError, PacError, ppa.FlowApiError) as exc:
         add(Check("platform", "deployed state", FAIL, str(exc)))
         return
     add(Check("platform", "deployed state", FAIL if plan.changes else PASS,

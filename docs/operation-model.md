@@ -195,6 +195,23 @@ description; a generated flow cannot execute it, so the validator warns and asks
 `fixed` (a literal), or unbound, which means omitted. A value that is neither bound nor an input
 is **not** agent-visible.
 
+A `filter.X` binding can set `match`:
+- `eq` (the default) or `ne`.
+- `contains`: a case-insensitive substring search.
+- `words`: every word is contained. If that finds nothing, the words that match nothing on their own (typos)
+  are dropped and the rest searched again. If that still finds nothing, any of the remaining words.
+
+A step warning's `when` is a condition on the step's response, `{field: Result, not_equals: 0}` (or `equals`).
+Prose conditions are allowed for review but cannot be executed: the validator warns and the flow generator
+refuses them.
+
+```yaml
+filter.CatalogDesc: {item: part_description, match: words}
+filter.AuthorizeCode: {fixed: "*", match: ne}
+warnings:
+  - {source: step, step: check-customer-po, when: {field: Result, not_equals: 0}, meaning: customer-po-already-used}
+```
+
 ```yaml
 body.ValidationRec:
   record:
@@ -238,7 +255,7 @@ Validation rules for capabilities (Phase 7b):
 |---|---|---|
 | Skill (Phase 8) | approved capability: purpose, inputs, questions, confirmation, actions; operations for technical detail | the full field surface of an operation |
 | Connector (Phase 9) | operations referenced by approved capabilities (plus §5a compatibility transforms) | operations not used by any approved capability |
-| Dispatcher (Phase 12) | capability actions: inputs, steps, bindings, outputs | a mirror of every connector parameter |
+| Flows (Phase 12) | capability actions: inputs, steps, bindings (including records and `match`), outputs, questions, warnings, errors; one flow per action | a mirror of every connector parameter |
 | Agent (Phase 13) | capability actions and their contract, via the dispatcher endpoint | raw IFS operations |
 
 ## 5. Evidence principles (from the Phase 6 pilot)

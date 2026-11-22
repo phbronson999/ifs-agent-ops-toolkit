@@ -291,6 +291,12 @@ def check_power_platform() -> list[Check]:
     dotnet = _run(["dotnet", "--version"])
     out.append(Check(c, "dotnet", PASS if dotnet else WARN, (dotnet or "not found").strip(),
                      "" if dotnet else "needed only for the .NET tool install of pac (.NET 10 recommended)"))
+    az = _run(["az", "version", "--output", "json"]) or _run(["az.cmd", "version", "--output", "json"])
+    v = re.search(r'"azure-cli":\s*"([\d.]+)"', az or "")
+    out.append(Check(c, "az", PASS if az else WARN, f"Azure CLI {v.group(1) if v else ''}".strip() if az
+                     else "Azure CLI not found",
+                     "" if az else "needed to deploy flows (reads them back and records trigger URLs): winget "
+                                   "install Microsoft.AzureCLI, then az login --allow-no-subscriptions"))
     out += _deployment_targets(c, pac is not None)
     return out
 

@@ -314,3 +314,9 @@ def test_reference_without_custom_connector_link_is_updated(setup):
     assert ppa.plan(intent, package, target, pac).changes == []
     env.references["ti_IfsOrderHandling"]["customconnectorid"] = "ti_ifsorderhandling"   # pac shows the name
     assert ppa.plan(intent, package, target, pac).changes == []
+
+
+def test_downloaded_policy_key_case_is_not_drift():
+    mine = [{"templateId": "setqueryparameter", "title": "t", "parameters": {"x-ms-apimTemplateParameter.name": "@A"}}]
+    downloaded = [{"TemplateId": "setqueryparameter", "Title": "t", "Parameters": {"x-ms-apimTemplateParameter.name": "@A"}}]
+    assert ppa._policies(downloaded) == ppa._policies(mine)

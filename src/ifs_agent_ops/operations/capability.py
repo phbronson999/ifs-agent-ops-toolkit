@@ -22,6 +22,7 @@ InputType = Literal["string", "decimal", "integer", "boolean", "date", "datetime
 InputSource = Literal["agent", "document", "user"]
 Role = Literal["lookup", "validation", "defaults", "calculation", "write"]
 _SOURCE_KINDS = ("input", "item", "step", "config", "record", "derived", "fixed")
+Match = Literal["eq", "ne", "contains", "words"]
 
 
 class _M(BaseModel):
@@ -61,6 +62,9 @@ class Source(_M):
     derived: Optional[str] = Field(None, description="Prose description of a value; not executable (use record)")
     fixed: Any = None
     transform: Optional[Literal["date", "datetime", "string", "number", "local-datetime"]] = None
+    match: Optional[Match] = Field(None, description="filter.X targets only: eq (default), ne, contains "
+                                   "(case-insensitive substring) or words (every word contained; words that match "
+                                   "nothing on their own are dropped; then any word)")
     note: Optional[str] = None
 
     @model_validator(mode="after")
@@ -136,11 +140,25 @@ class Output(_M):
     description: str = ""
 
 
+class WarningCondition(_M):
+    """An executable warning condition on a step's response field (compared as text)."""
+    field: str
+    equals: Any = None
+    not_equals: Any = None
+
+    @model_validator(mode="after")
+    def _one(self):
+        if ("equals" in self.model_fields_set) == ("not_equals" in self.model_fields_set):
+            raise ValueError("a warning condition needs exactly one of equals, not_equals")
+        return self
+
+
 class WarningRule(_M):
     source: Literal["ifs", "step"]
     header: Optional[str] = None
     step: Optional[str] = None
-    when: Optional[str] = None
+    when: Optional[str | WarningCondition] = Field(None, description="{field, equals | not_equals}; prose is "
+                                                                     "not executable by a generated flow")
     meaning: str = ""
 
 
@@ -196,8 +214,8 @@ class Capability(_M):
 
     def content_hash(self) -> str:
         """Hash of everything a reviewer approves (status, approval and runtime results excluded)."""
-        data = self.model_dump(mode="json", exclude={"status": True, "approval": True,
-                                                     "runtime_validation": RUNTIME_RESULT_FIELDS})
+        data = _drop_unset_later_fields(self.model_dump(mode="json", exclude={
+            "status": True, "approval": True, "runtime_validation": RUNTIME_RESULT_FIELDS}))
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
     def all_inputs(self) -> dict[str, Input]:
@@ -209,6 +227,18 @@ class Capability(_M):
 
     def step(self, step_id: str) -> Optional[Step]:
         return next((s for s in self.steps if s.id == step_id), None)
+
+
+_LATER_FIELDS = {"match"}   # added after approvals existed: left out of the hash while unset
+
+
+def _drop_unset_later_fields(data):
+    if isinstance(data, dict):
+        return {k: _drop_unset_later_fields(v) for k, v in data.items()
+                if not (k in _LATER_FIELDS and v is None)}
+    if isinstance(data, list):
+        return [_drop_unset_later_fields(v) for v in data]
+    return data
 
 
 def json_schema() -> dict:

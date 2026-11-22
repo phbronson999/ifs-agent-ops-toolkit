@@ -78,7 +78,7 @@ def test_display_names_fit_the_power_platform_limit():
 
 def test_parse_rejects_unknown_keys_and_missing_fields(package):
     with pytest.raises(di.IntentError, match="unknown key"):
-        di.parse({"power_platform": {"solution": {}, "flows": []}}, package.root)
+        di.parse({"power_platform": {"solution": {}, "agents": []}}, package.root)
     with pytest.raises(di.IntentError, match="missing: prefix"):
         di.parse({"power_platform": {"solution": {"unique_name": "A", "display_name": "A", "publisher": "P"}}},
                  package.root)

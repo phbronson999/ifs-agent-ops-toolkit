@@ -24,6 +24,8 @@ environment itself (environment variable values, connections). Example::
         - logical_name: ti_IfsCustomerOrderHandling
           display_name: IFS Customer Order Handling
           connector: customer-order-handling
+      flows:                                  # generated flows (one per capability action), turned on
+        - source: power-platform/flows/create-customer-order
 """
 from __future__ import annotations
 
@@ -82,11 +84,17 @@ class ConnectionReference:
 
 
 @dataclass
+class Flows:
+    source: str               # folder of generated flows: power-platform/flows/<capability>
+
+
+@dataclass
 class PowerPlatformIntent:
     solution: Solution
     connectors: list[Connector] = field(default_factory=list)
     environment_variables: list[EnvironmentVariable] = field(default_factory=list)
     connection_references: list[ConnectionReference] = field(default_factory=list)
+    flows: list[Flows] = field(default_factory=list)
 
 
 @dataclass
@@ -128,7 +136,7 @@ def parse(data, path: Path) -> DeployIntent:
     if pp is None:
         return DeployIntent(path)
     pp = _mapping(pp, "power_platform", {"solution", "connectors", "environment_variables",
-                                         "connection_references"}, {"solution"})
+                                         "connection_references", "flows"}, {"solution"})
     sol = Solution(**_mapping(pp["solution"], "power_platform.solution",
                               {"unique_name", "display_name", "publisher", "prefix"},
                               {"unique_name", "display_name", "publisher", "prefix"}))
@@ -145,7 +153,9 @@ def parse(data, path: Path) -> DeployIntent:
                                                  {"logical_name", "display_name", "connector"}))
                   for i, r in enumerate(_items(pp.get("connection_references"),
                                                "power_platform.connection_references"))]
-    return DeployIntent(path, PowerPlatformIntent(sol, connectors, variables, references))
+    flows = [Flows(**_mapping(f, f"power_platform.flows[{i}]", {"source"}, {"source"}))
+             for i, f in enumerate(_items(pp.get("flows"), "power_platform.flows"))]
+    return DeployIntent(path, PowerPlatformIntent(sol, connectors, variables, references, flows))
 
 
 def load_intent(package: Package) -> Optional[DeployIntent]:
@@ -232,6 +242,19 @@ def validate(intent: DeployIntent, package: Package) -> tuple[list[str], list[st
                           "(letters, digits, '_')")
         if r.connector not in connectors:
             errors.append(f"connection reference {r.logical_name!r}: connector {r.connector!r} is not declared")
+    from ifs_agent_ops.generators.flow import MARKER, REPORT_FILE
+
+    for name in _duplicates([f.source for f in pp.flows]):
+        errors.append(f"flows {name!r} is declared more than once")
+    for f in pp.flows:
+        folder = (package.root / f.source).resolve()
+        if package.root.resolve() not in folder.parents:
+            errors.append(f"flows {f.source!r} must be a folder inside the package")
+            continue
+        report = folder / REPORT_FILE
+        if not any(folder.glob("*.json")) or not report.exists() or MARKER not in report.read_text(encoding="utf-8"):
+            warnings.append(f"flows {f.source!r}: not generated yet (ifs-agent-ops flow generate --package "
+                            f"{package.name})")
     for c in pp.connectors:
         if not any(r.connector == c.logical_name for r in pp.connection_references):
             warnings.append(f"connector {c.logical_name!r} has no connection reference: flows could not use it "

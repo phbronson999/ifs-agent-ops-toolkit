@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 
+WORKFLOW_COMPONENT = 29
 CONNECTOR_COMPONENT = 372
 ENVIRONMENT_VARIABLE_COMPONENT = 380
 GATEWAY_CAPABILITY = "[-1,118690003,-1]"   # the connector record's value for "Connect via on-premises data gateway"
@@ -39,6 +40,7 @@ class ConnectorPart:
     definition: dict          # apiDefinition with host and title already set
     connection_parameters: dict
     icon_brand_color: str = "#007ee5"
+    policies: list = field(default_factory=list)   # policyTemplateInstances (e.g. parameter-alias policies)
 
 
 @dataclass
@@ -59,6 +61,19 @@ class ReferencePart:
 
 
 @dataclass
+class WorkflowPart:
+    """A cloud flow (modern flow, category 5) with its definition (clientdata) as the solution stores it."""
+    workflow_id: str
+    name: str
+    definition: dict          # {"properties": {...}, "schemaVersion": ...} with environment values filled in
+    on: bool = True           # imported turned on
+
+    @property
+    def json_file(self) -> str:
+        return f"/Workflows/{self.name}-{self.workflow_id.upper()}.json"
+
+
+@dataclass
 class SolutionFile:
     unique_name: str
     display_name: str
@@ -67,6 +82,7 @@ class SolutionFile:
     connectors: list[ConnectorPart] = field(default_factory=list)
     variables: list[VariablePart] = field(default_factory=list)
     references: list[ReferencePart] = field(default_factory=list)
+    workflows: list[WorkflowPart] = field(default_factory=list)
 
 
 def _label(tag: str, text: str) -> str:
@@ -80,6 +96,8 @@ def solution_xml(sol: SolutionFile) -> str:
              f'behavior="0" />' for c in sol.connectors]
     roots += [f'<RootComponent type="{ENVIRONMENT_VARIABLE_COMPONENT}" schemaName={quoteattr(v.schema_name)} '
               f'behavior="0" />' for v in sol.variables]
+    roots += [f'<RootComponent type="{WORKFLOW_COMPONENT}" id="{{{w.workflow_id}}}" behavior="0" />'
+              for w in sol.workflows]
     return f"""<ImportExportXml version="9.2" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="ifs-agent-ops" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <SolutionManifest>
     <UniqueName>{escape(sol.unique_name)}</UniqueName>
@@ -126,8 +144,36 @@ def customizations_xml(sol: SolutionFile) -> str:
       <statecode>0</statecode>
       <statuscode>1</statuscode>
     </connectionreference>""" for r in sol.references)
+    workflows = "".join(f"""
+    <Workflow WorkflowId="{{{w.workflow_id}}}" Name={quoteattr(w.name)}>
+      <JsonFileName>{escape(w.json_file)}</JsonFileName>
+      <Type>1</Type>
+      <Subprocess>0</Subprocess>
+      <Category>5</Category>
+      <Mode>0</Mode>
+      <Scope>4</Scope>
+      <OnDemand>0</OnDemand>
+      <TriggerOnCreate>0</TriggerOnCreate>
+      <TriggerOnDelete>0</TriggerOnDelete>
+      <AsyncAutodelete>0</AsyncAutodelete>
+      <SyncWorkflowLogOnFailure>0</SyncWorkflowLogOnFailure>
+      <StateCode>{1 if w.on else 0}</StateCode>
+      <StatusCode>{2 if w.on else 1}</StatusCode>
+      <RunAs>1</RunAs>
+      <IsTransacted>1</IsTransacted>
+      <IntroducedVersion>1.0.0.0</IntroducedVersion>
+      <IsCustomizable>1</IsCustomizable>
+      <RendererObjectTypeCode>0</RendererObjectTypeCode>
+      <IsCustomProcessingStepAllowedForOtherPublishers>1</IsCustomProcessingStepAllowedForOtherPublishers>
+      <ModernFlowType>0</ModernFlowType>
+      <PrimaryEntity>none</PrimaryEntity>
+      <LocalizedNames>
+        <LocalizedName languagecode="1033" description={quoteattr(w.name)} />
+      </LocalizedNames>
+    </Workflow>""" for w in sol.workflows)
+    workflows_xml = f"<Workflows>{workflows}\n  </Workflows>" if sol.workflows else "<Workflows />"
     return f"""<ImportExportXml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <Entities /><Roles /><Workflows /><FieldSecurityProfiles /><Templates /><EntityMaps /><EntityRelationships />
+  <Entities /><Roles />{workflows_xml}<FieldSecurityProfiles /><Templates /><EntityMaps /><EntityRelationships />
   <OrganizationSettings /><optionsets /><CustomControls /><EntityDataProviders />
   <Connectors>{connectors}
   </Connectors>
@@ -160,7 +206,9 @@ def write_solution(sol: SolutionFile, path: Path) -> Path:
         for c in sol.connectors:
             z.writestr(f"Connector/{c.name}_openapidefinition.json", json.dumps(c.definition, separators=(",", ":")))
             z.writestr(f"Connector/{c.name}_connectionparameters.json", json.dumps(c.connection_parameters, indent=2))
-            z.writestr(f"Connector/{c.name}_policytemplateinstances.json", "[]")
+            z.writestr(f"Connector/{c.name}_policytemplateinstances.json", json.dumps(c.policies, indent=2))
+        for w in sol.workflows:
+            z.writestr(w.json_file.lstrip("/"), json.dumps(w.definition, separators=(",", ":")))
         for v in sol.variables:
             folder = f"environmentvariabledefinitions/{v.schema_name}"
             z.writestr(f"{folder}/environmentvariabledefinition.xml", variable_definition_xml(v))

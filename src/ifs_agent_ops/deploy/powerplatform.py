@@ -7,6 +7,10 @@ environment back and fails if anything still differs: a second ``apply`` is a no
 
 What a person does (never automated): create each connection (gateway + IFS username and password) and set
 environment variable values the target does not supply. ``status`` and the checklist say what is missing.
+
+Generated flows (``flows:`` in deploy.yaml) are imported in the same solution with the deployed connectors'
+API names and the target's ``flow_trigger_users`` filled in, turned on, and their trigger URLs are recorded in
+the target file. Flows are read back from Dataverse with the Azure CLI sign-in (``deploy/flowapi.py``).
 """
 from __future__ import annotations
 
@@ -19,9 +23,10 @@ from pathlib import Path
 from typing import Optional
 
 from ifs_agent_ops.deploy import solution_zip as sz
+from ifs_agent_ops.deploy.flowapi import STATE_ON, FlowApi, FlowApiError  # noqa: F401  (re-exported for the CLI)
 from ifs_agent_ops.deploy.intent import DeployIntent, validate
 from ifs_agent_ops.deploy.pac import Pac, PacError  # noqa: F401  (PacError is re-exported for the CLI)
-from ifs_agent_ops.deploy.targets import Target
+from ifs_agent_ops.deploy.targets import Target, record_flow_triggers
 from ifs_agent_ops.workspace.package import Package
 
 API_PREFIX = "/providers/Microsoft.PowerApps/apis/"
@@ -94,8 +99,51 @@ def _desired_connectors(intent: DeployIntent, package: Package) -> list[_Desired
             connector_id=_connector_id(pp.solution.unique_name, name), name=name, display_name=c.display_name,
             description=definition["info"].get("description", ""), definition=definition,
             connection_parameters=props.get("connectionParameters", {}),
-            icon_brand_color=props.get("iconBrandColor", "#007ee5")), c.logical_name))
+            icon_brand_color=props.get("iconBrandColor", "#007ee5"),
+            policies=props.get("policyTemplateInstances", [])), c.logical_name))
     return out
+
+
+def _workflow_id(solution: str, name: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"ifs-agent-ops:{solution}:flow:{name}"))
+
+
+@dataclass
+class _DesiredFlow:
+    name: str                 # CreateCustomerOrder_Prepare
+    workflow_id: str
+    template: dict            # the generated flow, with placeholders
+    connectors: list[str]     # deploy.yaml connector logical names it calls
+
+
+def _desired_flows(intent: DeployIntent, package: Package) -> list[_DesiredFlow]:
+    from ifs_agent_ops.generators.flow import flow_name
+
+    pp = intent.power_platform
+    out = []
+    for f in pp.flows:
+        folder = package.root / f.source
+        for path in sorted(folder.glob("*.json")):
+            template = json.loads(path.read_text(encoding="utf-8"))
+            name = flow_name(folder.name, path.stem)
+            used = sorted(set(re.findall(r"%%CONNECTOR_API:([a-z0-9-]+)%%", json.dumps(template))))
+            out.append(_DesiredFlow(name, _workflow_id(pp.solution.unique_name, name), template, used))
+    return out
+
+
+def _fill(template: dict, api_names: dict[str, str], users: list[str]) -> dict:
+    """The flow with the environment's values: connector API names and the users allowed to call the trigger."""
+    from ifs_agent_ops.generators.flow import USERS_TOKEN, api_token
+
+    text = json.dumps(template)
+    for connector, api in api_names.items():
+        text = text.replace(api_token(connector), api)
+    return json.loads(text.replace(USERS_TOKEN, "; ".join(users)))
+
+
+def _comparable(definition: dict) -> dict:
+    props = definition.get("properties", {})
+    return {"definition": props.get("definition"), "connectionReferences": props.get("connectionReferences")}
 
 
 # ── reading the environment ──────────────────────────────────────────────────
@@ -117,9 +165,11 @@ class _State:
     variables: dict[str, Optional[dict]]           # schema name -> definition row (+ "value")
     references: dict[str, Optional[dict]]          # logical name -> connectionreference row
     reference_type: Optional[int]
+    flows: dict[str, Optional[dict]] = field(default_factory=dict)   # flow name -> workflow row
 
 
-def _read(intent: DeployIntent, desired: list[_Desired], pac: Pac) -> _State:
+def _read(intent: DeployIntent, desired: list[_Desired], pac: Pac, flows: list[_DesiredFlow] = (),
+          api: Optional[FlowApi] = None) -> _State:
     pp = intent.power_platform
     sol = next((s for s in pac.solutions() if s.get("SolutionUniqueName", "").lower()
                 == pp.solution.unique_name.lower()), None)
@@ -151,7 +201,13 @@ def _read(intent: DeployIntent, desired: list[_Desired], pac: Pac) -> _State:
         row = _one(pac.fetch("solutioncomponentdefinition", ["name", "solutioncomponenttype"],
                              {"name": "connectionreference"}))
         ref_type = _int(row["solutioncomponenttype"]) if row else None
-    return _State(sol, publisher, members, connectors, variables, references, ref_type)
+    rows = {f.name: api.workflow(f.workflow_id) for f in flows} if api is not None else {}
+    return _State(sol, publisher, members, connectors, variables, references, ref_type, rows)
+
+
+def _policies(items: list) -> list:
+    """Policy instances compared without key case: a downloaded connector says TemplateId / Title / Parameters."""
+    return [{k[:1].lower() + k[1:]: v for k, v in p.items()} for p in items]
 
 
 def _connector_drift(d: _Desired, row: dict, pac: Pac) -> list[str]:
@@ -165,6 +221,8 @@ def _connector_drift(d: _Desired, row: dict, pac: Pac) -> list[str]:
         reasons.append("definition differs (" + ", ".join(changed) + ")")
     if props.get("connectionParameters") != d.part.connection_parameters:
         reasons.append("connection parameters differ")
+    if _policies(props.get("policyTemplateInstances") or []) != _policies(d.part.policies):
+        reasons.append("policies differ")
     return reasons
 
 
@@ -180,6 +238,9 @@ class _Work:
     references: list[sz.ReferencePart] = field(default_factory=list)
     add: list[tuple[str, int, Item]] = field(default_factory=list)     # (component id, type, item)
     references_after_connectors: bool = False
+    workflows: list[sz.WorkflowPart] = field(default_factory=list)
+    flows_after_connectors: bool = False
+    turn_on: list[tuple[str, str]] = field(default_factory=list)       # (workflow id, flow name)
 
 
 def deployed_file(path: Path) -> bool:
@@ -203,13 +264,30 @@ def _check_ready(intent: Optional[DeployIntent], package: Package) -> DeployInte
     if stale:
         raise DeployError("generated connectors are not current; run: ifs-agent-ops connector generate --package "
                           f"{package.name}\n  " + "\n  ".join(f"{r.action} {r.path}" for r in stale))
+    if intent.power_platform.flows:
+        from ifs_agent_ops.generators.flow import REPORT_FILE as FLOW_REPORT
+        from ifs_agent_ops.generators.flow import generate as generate_flows
+
+        g = generate_flows(package, check=True)
+        if not g.ok:
+            raise DeployError("flows cannot be generated: " + "; ".join(g.errors))
+        stale = [r for r in g.results if r.action != "unchanged" and r.path.name != FLOW_REPORT]
+        if stale:
+            raise DeployError("generated flows are not current; run: ifs-agent-ops flow generate --package "
+                              f"{package.name}\n  " + "\n  ".join(f"{r.action} {r.path}" for r in stale))
     return intent
 
 
-def _work(intent: DeployIntent, package: Package, target: Target, pac: Pac) -> _Work:
+def flow_api(intent: DeployIntent, target: Target) -> Optional[FlowApi]:
+    return FlowApi(target.environment_url, target.environment_id) if intent.power_platform.flows else None
+
+
+def _work(intent: DeployIntent, package: Package, target: Target, pac: Pac,
+          api: Optional[FlowApi] = None) -> _Work:
     pp = intent.power_platform
     desired = _desired_connectors(intent, package)
-    st = _read(intent, desired, pac)
+    flows = _desired_flows(intent, package)
+    st = _read(intent, desired, pac, flows, api)
     plan = Plan(package.name, target.name, target.environment, pp.solution.unique_name,
                 st.solution.get("VersionNumber") if st.solution else None)
     w = _Work(plan, st, desired)
@@ -303,12 +381,52 @@ def _work(intent: DeployIntent, package: Package, target: Target, pac: Pac) -> _
                      f"and password) and select it on connection reference {r.logical_name}"))
         else:
             add(Item("connection", r.logical_name, OK, "attached"))
+
+    if flows and api is None:
+        raise DeployError("flows need the Power Platform flow API (internal: no FlowApi given)")
+    if flows and not target.trigger_users:
+        for f in flows:
+            add(Item("flow", f.name, MANUAL, f"add flow_trigger_users (who may call the flows' HTTP triggers) to "
+                     f"{target.path}, then deploy again"))
+        return w
+    api_names = {d.logical_name: row["connectorinternalid"] for d in desired
+                 if (row := st.connectors[d.part.name]) is not None}
+    for f in flows:
+        missing_api = [c for c in f.connectors if c not in api_names]
+        row = st.flows.get(f.name)
+        if missing_api:
+            add(Item("flow", f.name, CREATE if row is None else UPDATE, "after the connector is created"))
+            w.flows_after_connectors = True
+            continue
+        definition = _fill(f.template, api_names, target.trigger_users)
+        part = sz.WorkflowPart(f.workflow_id, f.name, definition)
+        if row is None:
+            add(Item("flow", f.name, CREATE, "turned on after import"))
+            w.workflows.append(part)
+            continue
+        try:
+            deployed = json.loads(row.get("clientdata") or "{}")
+        except json.JSONDecodeError:
+            deployed = {}
+        if _comparable(deployed) != _comparable(definition):
+            add(Item("flow", f.name, UPDATE, "definition differs"))
+            w.workflows.append(part)
+        elif st.solution and f.workflow_id.lower() not in st.members:
+            add(Item("flow", f.name, ADD, "exists outside the solution"))
+            w.workflows.append(part)
+        elif int(row.get("statecode") or 0) != STATE_ON:
+            add(Item("flow", f.name, UPDATE, "turned off: turn on"))
+            w.turn_on.append((f.workflow_id, f.name))
+        else:
+            add(Item("flow", f.name, OK, "on" + (", trigger URL recorded" if f.name in target.flow_triggers
+                                                  else "")))
     return w
 
 
-def plan(intent: Optional[DeployIntent], package: Package, target: Target, pac: Optional[Pac] = None) -> Plan:
+def plan(intent: Optional[DeployIntent], package: Package, target: Target, pac: Optional[Pac] = None,
+         api: Optional[FlowApi] = None) -> Plan:
     intent = _check_ready(intent, package)
-    return _work(intent, package, target, pac or Pac(target.environment_url)).plan
+    return _work(intent, package, target, pac or Pac(target.environment_url), api or flow_api(intent, target)).plan
 
 
 # ── apply ────────────────────────────────────────────────────────────────────
@@ -322,14 +440,14 @@ def _bump(version: Optional[str]) -> str:
     return ".".join(map(str, parts))
 
 
-def _import(w: _Work, intent: DeployIntent, pac: Pac, connectors, variables, references) -> str:
+def _import(w: _Work, intent: DeployIntent, pac: Pac, connectors, variables, references, workflows=()) -> str:
     pp = intent.power_platform
     pub = w.state.publisher
     version = _bump(w.plan.version)
     sol = sz.SolutionFile(pp.solution.unique_name, pp.solution.display_name, version,
                           sz.Publisher(pub["uniquename"], pub.get("friendlyname") or pub["uniquename"],
                                        pub["customizationprefix"], _int(pub["customizationoptionvalueprefix"])),
-                          connectors, variables, references)
+                          connectors, variables, references, list(workflows))
     with tempfile.TemporaryDirectory() as tmp:
         path = sz.write_solution(sol, Path(tmp) / f"{pp.solution.unique_name}_{version.replace('.', '_')}.zip")
         pac.import_solution(path)
@@ -342,34 +460,60 @@ class ApplyResult:
     after: Plan
     imported: list[str] = field(default_factory=list)      # solution versions imported
     added: list[str] = field(default_factory=list)          # components added to the solution
+    turned_on: list[str] = field(default_factory=list)      # flows turned on after import
+    triggers_recorded: bool = False                         # the target file got new trigger URLs
     settings_path: Optional[Path] = None
 
 
-def apply(intent: Optional[DeployIntent], package: Package, target: Target, pac: Optional[Pac] = None) -> ApplyResult:
+def apply(intent: Optional[DeployIntent], package: Package, target: Target, pac: Optional[Pac] = None,
+          api: Optional[FlowApi] = None) -> ApplyResult:
     intent = _check_ready(intent, package)
     pac = pac or Pac(target.environment_url)
-    w = _work(intent, package, target, pac)
+    api = api or flow_api(intent, target)
+
+    def again() -> _Work:
+        return _work(intent, package, target, pac, api)
+
+    w = again()
     result = ApplyResult(before=w.plan, after=w.plan)
     if w.plan.changes:
-        needs_import = (w.state.solution is None or w.connectors or w.variables or w.references)
+        needs_import = (w.state.solution is None or w.connectors or w.variables or w.references or w.workflows)
         if needs_import:
-            result.imported.append(_import(w, intent, pac, w.connectors, w.variables, w.references))
-            w = _work(intent, package, target, pac)          # new connectors now have their API ids
-        if w.references:
-            result.imported.append(_import(w, intent, pac, [], [], w.references))
-            w = _work(intent, package, target, pac)
+            result.imported.append(_import(w, intent, pac, w.connectors, w.variables, w.references, w.workflows))
+            w = again()                                       # new connectors now have their API ids
+        if w.references or w.workflows:                       # references and flows that waited for connectors
+            result.imported.append(_import(w, intent, pac, [], [], w.references, w.workflows))
+            w = again()
         for component_id, component_type, item in w.add:
             if not component_type:
                 raise DeployError(f"cannot add {item.kind} {item.name}: component type unknown in this environment")
             pac.add_component(intent.power_platform.solution.unique_name, component_id, component_type)
             result.added.append(f"{item.kind} {item.name}")
-        w = _work(intent, package, target, pac)
+        w = again()
+        for workflow_id, name in w.turn_on:
+            api.set_state(workflow_id, on=True)
+            result.turned_on.append(name)
+        if w.turn_on:
+            w = again()
         result.after = w.plan
         if w.plan.changes:
             raise DeployError("the environment still differs after deploying:\n  "
                               + "\n  ".join(f"{i.kind} {i.name}: {i.action} ({i.detail})" for i in w.plan.changes))
+    if api is not None and w.state.flows:
+        result.triggers_recorded = record_triggers(w.state, target, api)
+        if result.triggers_recorded:
+            result.after = again().plan
     result.settings_path = write_settings(intent, target, w.state)
     return result
+
+
+def record_triggers(state: _State, target: Target, api: FlowApi) -> bool:
+    """Write each deployed flow's HTTP trigger URL into the target file (environment-specific, never committed)."""
+    triggers = dict(target.flow_triggers)
+    for name, row in state.flows.items():
+        if row and row.get("resourceid") and int(row.get("statecode") or 0) == STATE_ON:
+            triggers[name] = api.callback_url(row["resourceid"])
+    return record_flow_triggers(target, triggers)
 
 
 # ── deployment settings file + checklist ─────────────────────────────────────

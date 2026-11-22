@@ -610,6 +610,40 @@ def cmd_connector(args: argparse.Namespace) -> int:
     return 1 if not gen.ok or stale else 0
 
 
+def cmd_flow(args: argparse.Namespace) -> int:
+    """Generate Power Automate flows (one per capability action) from approved capabilities."""
+    import json
+
+    from ifs_agent_ops.generators.flow import flow_name, generate
+    from ifs_agent_ops.workspace.discovery import find_package
+    from ifs_agent_ops.workspace.package import PackageError
+
+    try:
+        package = find_package(args.package)
+    except PackageError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    gen = generate(package, check=args.check)
+    if args.output == "json":
+        print(json.dumps({"schema": "ifs-agent-ops/flow-generation", "schema_version": 1, "package": package.name,
+                          "check": args.check, "ok": gen.ok, "errors": gen.errors,
+                          "flows": [{"capability": c, "action": a, "name": flow_name(c, a)}
+                                    for c, acts in gen.flows.items() for a in acts],
+                          "results": [{"path": str(r.path), "action": r.action, "message": r.message}
+                                      for r in gen.results]}, indent=2))
+    else:
+        for r in gen.results:
+            print(f"{r.action:<12} {r.path}" + (f"\n             {r.message}" if r.message else ""))
+        names = [flow_name(c, a) for c, acts in gen.flows.items() for a in acts]
+        if names:
+            print(f"Flows: {', '.join(names)}. Deploy them with: ifs-agent-ops deploy apply --package "
+                  f"{package.name} --target <target> (deploy.yaml lists them under flows)")
+        elif gen.ok:
+            print("No approved capabilities: nothing to generate.")
+    stale = args.check and any(r.action.startswith("would-") for r in gen.results)
+    return 1 if not gen.ok or stale else 0
+
+
 def cmd_deploy(args: argparse.Namespace) -> int:
     """Deployment intent (deploy.yaml): scaffold it, check it."""
     import json
@@ -697,6 +731,10 @@ def _deploy_target(args: argparse.Namespace, package) -> int:
                 print(f"Imported solution version(s): {', '.join(result.imported) or '-'}"
                       + (f"; added to the solution: {', '.join(result.added)}" if result.added else ""))
                 print("Verified: " + ppa.describe(result.after)[-1])
+            if result.turned_on:
+                print(f"Turned on: {', '.join(result.turned_on)}")
+            if result.triggers_recorded:
+                print(f"Trigger URLs recorded in {target.path} (flow_triggers)")
             if result.settings_path:
                 print(f"Deployment settings file: {result.settings_path}")
             steps = ppa.checklist(result.after)
@@ -709,7 +747,7 @@ def _deploy_target(args: argparse.Namespace, package) -> int:
                 return 0 if args.deploy_command == "status" or not current.changes else 1
             print("\n".join(ppa.describe(current)))
             steps = ppa.checklist(current)
-    except (TargetError, IntentError, ppa.DeployError, ppa.PacError) as exc:
+    except (TargetError, IntentError, ppa.DeployError, ppa.PacError, ppa.FlowApiError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     if steps:
@@ -1056,6 +1094,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     c_gen.add_argument("--max-bytes", type=int, default=1_000_000, help="apiDefinition size limit (default 1000000)")
     _add_output(c_gen)
 
+    flw = sub.add_parser("flow", help="Power Automate flows (one per capability action) generated from approved "
+                                      "capabilities").add_subparsers(dest="flow_command", required=True)
+    f_gen = flw.add_parser("generate", help="generate <package>/power-platform/flows/<capability>/<action>.json")
+    f_gen.add_argument("--package", required=True)
+    f_gen.add_argument("--check", action="store_true", help="write nothing; exit 1 if a file is missing or stale")
+    _add_output(f_gen)
+
     skl = sub.add_parser("skills", help="agent skills generated from approved capabilities").add_subparsers(
         dest="skills_command", required=True)
     s_gen = skl.add_parser("generate", help="generate <package>/agent/skills/<capability>.md from approved capabilities")
@@ -1155,6 +1200,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_skills(args)
     if args.command == "connector":
         return cmd_connector(args)
+    if args.command == "flow":
+        return cmd_flow(args)
     if args.command == "capture":
         return cmd_capture(args)
 

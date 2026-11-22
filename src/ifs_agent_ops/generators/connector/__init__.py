@@ -158,9 +158,11 @@ def _operation_object(sel: Selected, edmx, stats: dict) -> tuple[dict, Entry]:
     for alias in rendered.aliases:
         t = types.get(alias)
         spec_alias = next((p for p in sel.spec_op.get("parameters", []) if p.get("name") == "@" + alias), {})
-        params.append({"name": "@" + alias, "in": "query", "required": True, "type": "string", "x-ms-summary": alias,
-                       "description": f"JSON value of {t.edm if t else alias} (parameter alias; sent as "
-                                      f"@{alias}=<json> in the query string)."
+        # flows cannot set a parameter whose name starts with @, so the connector takes the JSON as <alias> and a
+        # setqueryparameter policy sends it to IFS as @<alias>=<json> (IFS ignores the extra <alias> option)
+        params.append({"name": alias, "in": "query", "required": True, "type": "string", "x-ms-summary": alias,
+                       "description": f"JSON value of {t.edm if t else alias} (parameter alias; the connector sends "
+                                      f"it as @{alias}=<json> in the query string)."
                                       + (f" {spec_alias['description']}." if spec_alias.get("description") else "")})
     for h in op.headers:
         params.append({"name": h.name, "in": "header", "required": h.required, "type": "string",
@@ -252,7 +254,7 @@ def _build_one(package: Package, projection: str, selected: list[Selected], caps
 
     retired = _check_map(package, projection, entries)
     files = {DEFINITION_FILE: validate.compact(doc) + "\n",
-             PROPERTIES_FILE: json.dumps(_properties(), indent=2) + "\n"}
+             PROPERTIES_FILE: json.dumps(_properties(alias_policies(entries)), indent=2) + "\n"}
     files[MAP_FILE] = _render_map(package, projection, entries, retired)
     built = Built(projection=projection, files=files, entries=entries, size=size, stats=stats, skipped=skipped,
                   retired=retired)
@@ -268,7 +270,22 @@ def _gateway_param(param_type: str, tab: int, display: str, description: str, to
                                              "capability": ["gateway"]}}}
 
 
-def _properties() -> dict:
+def alias_policies(entries: list[Entry]) -> list[dict]:
+    """One setqueryparameter policy per parameter alias: copies the <alias> query parameter (which a flow can set)
+    to @<alias> (which IFS reads), only on the operations that use it."""
+    by_alias: dict[str, list[str]] = {}
+    for e in entries:
+        for alias in e.aliases:
+            by_alias.setdefault(alias, []).append(e.operation_id)
+    return [{"templateId": "setqueryparameter", "title": f"Parameter alias @{alias}",
+             "parameters": {"x-ms-apimTemplateParameter.name": f"@{alias}",
+                            "x-ms-apimTemplateParameter.value": f"@queryParameters('{alias}')",
+                            "x-ms-apimTemplateParameter.existsAction": "override",
+                            "x-ms-apimTemplate-operationName": sorted(ops)}}
+            for alias, ops in sorted(by_alias.items())]
+
+
+def _properties(policies: Optional[list[dict]] = None) -> dict:
     """Basic authentication through the on-premises data gateway (the shape the maker portal produces).
 
     Only the connection *type* is defined here; the username, password and gateway are entered when a person
@@ -290,7 +307,7 @@ def _properties() -> dict:
     # capabilities ["gateway"] is what ticks "Connect via on-premises data gateway" (pac connector download
     # omits it, so a downloaded apiProperties.json shows [] even for a gateway connector).
     return {"properties": {"capabilities": ["gateway"], "connectionParameters": params, "iconBrandColor": "#007ee5",
-                           "policyTemplateInstances": []}}
+                           "policyTemplateInstances": policies or []}}
 
 
 # ── stable operationId map ───────────────────────────────────────────────────
@@ -356,7 +373,7 @@ def _render_report(package: Package, caps, built: Built, pinned) -> str:
         lines += [f"- {x}" for x in literal] + [""]
     aliases = [f"`{e.operation_id}`: {', '.join('@' + a for a in e.aliases)}" for e in built.entries if e.aliases]
     if aliases:
-        lines += ["Parameter aliases (JSON value in the query string):", ""] + [f"- {x}" for x in aliases] + [""]
+        lines += ["Parameter aliases (the flow sets `<alias>`; a setqueryparameter policy sends it to IFS as `@<alias>`):", ""] + [f"- {x}" for x in aliases] + [""]
     renamed = [f"`{e.operation_id}`: {', '.join(e.renamed)}" for e in built.entries if e.renamed]
     lines += ["Repeated path keys renamed for Power Platform (C1): "
               + ("; ".join(renamed) if renamed else "none") + ".", ""]
