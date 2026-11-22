@@ -11,6 +11,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from ifs_agent_ops.operations.capability import Capability
+from ifs_agent_ops.generators.skills import warning_condition_text
 from ifs_agent_ops.operations.capability_validate import field_sources, validate_capability
 from ifs_agent_ops.operations.model import Operation, Workflow
 from ifs_agent_ops.workspace.package import LOCAL_STATE_DIR, Package
@@ -100,6 +101,7 @@ def render_review(cap: Capability, ops: dict[str, Operation], workflows: dict[st
         if non_body:
             L += ["Path/filter/header bindings: " + ", ".join(
                 f"`{k}` ← {v.kind} {getattr(v, v.kind) if v.kind != 'step' else v.step + '.' + v.field}"
+                + (f" (match {v.match})" if v.match else "")
                 for k, v in non_body.items()), ""]
         if op is None or s.role != "write":
             if op is not None and any(k.startswith("body.") for k in s.bindings):
@@ -130,7 +132,7 @@ def render_review(cap: Capability, ops: dict[str, Operation], workflows: dict[st
     L += ["## 8. Outputs, warnings and errors returned to the agent", ""]
     L += [f"- output `{o.name}` ← {o.step}.{o.field}{' (' + o.aggregate + ')' if o.aggregate else ''}"
           + (f": {_md_escape(o.description)}" if o.description else "") for o in cap.outputs]
-    L += [f"- warning ({w.source}{': ' + w.header if w.header else ''}{': ' + w.step if w.step else ''}) — {_md_escape(w.meaning)}"
+    L += [f"- warning ({w.source}{': ' + w.header if w.header else ''}{': ' + w.step if w.step else ''}{' when ' + warning_condition_text(w.when) if w.when else ''}) — {_md_escape(w.meaning)}"
           for w in cap.warnings]
     L += [f"- error `{e.meaning}` when {e.step} {e.when}" for e in cap.errors]
 

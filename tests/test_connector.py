@@ -330,3 +330,20 @@ def test_previous_single_connector_folder_is_removed_only_if_generated(pinned):
     legacy.mkdir()
     (legacy / DEFINITION_FILE).write_text('{"hand": "made"}', encoding="utf-8")   # no map: not ours
     assert generate(pinned).ok and (legacy / DEFINITION_FILE).exists()
+
+
+def test_parameter_aliases_get_a_policy_because_flows_cannot_set_at_names():
+    from types import SimpleNamespace
+
+    from ifs_agent_ops.generators.connector import _properties, alias_policies
+
+    entries = [SimpleNamespace(aliases=["Rec"], operation_id="function_A"),
+               SimpleNamespace(aliases=["Rec"], operation_id="function_B"), SimpleNamespace(aliases=[],
+                                                                                          operation_id="x")]
+    [policy] = alias_policies(entries)
+    assert policy["templateId"] == "setqueryparameter"
+    assert policy["parameters"] == {"x-ms-apimTemplateParameter.name": "@Rec",
+                                    "x-ms-apimTemplateParameter.value": "@queryParameters('Rec')",
+                                    "x-ms-apimTemplateParameter.existsAction": "override",
+                                    "x-ms-apimTemplate-operationName": ["function_A", "function_B"]}
+    assert _properties([policy])["properties"]["policyTemplateInstances"] == [policy]

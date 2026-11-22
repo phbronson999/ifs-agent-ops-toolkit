@@ -134,6 +134,11 @@ def validate_capability(cap: Capability, ops: dict[str, Operation]) -> list[Find
                 add(where, "unknown-target", "error", f"{target} is not a parameter of {op.id}")
                 continue
             _check_source(cap, step, i, target, src, tobj, inputs, position, ops, add)
+            if src.match is not None:
+                _check_match(where, target, src, tobj, add)
+        words = [t for t, b in step.bindings.items() if b.match == "words"]
+        if len(words) > 1:
+            add(where, "bad-match", "error", f"only one filter per step can use match: words ({', '.join(words)})")
 
         if step.role == "write":
             for fs in field_sources(cap, step, op, ops):
@@ -182,6 +187,21 @@ def validate_capability(cap: Capability, ops: dict[str, Operation]) -> list[Find
         if op and o.field not in op.response.fields and not (op.response.shape == "value" and o.field == "value"):
             add(f"output {o.name}", "unobserved-field", "warning",
                 f"{o.field} was not observed in {op.id} responses")
+
+    for n, w in enumerate(cap.warnings):
+        where = f"warning {n + 1}"
+        if w.source != "step":
+            continue
+        if w.step not in position:
+            add(where, "unknown-step", "error", f"step {w.step!r} does not exist")
+            continue
+        if isinstance(w.when, str):
+            add(where, "not-executable", "warning", "a prose warning condition cannot be executed by a generated "
+                "flow; write it as {field, equals | not_equals}")
+        elif w.when is not None:
+            op = ops.get(cap.steps[position[w.step]].operation)
+            if op and w.when.field not in op.response.fields:
+                add(where, "unobserved-field", "warning", f"{w.when.field} was not observed in {op.id} responses")
 
     if cap.status == "approved":
         _check_approval(cap, ops, add)
@@ -263,6 +283,18 @@ def _check_source(cap, step, i, target, src: Source, tobj, inputs, position, ops
             if member not in rec.keep and member not in rec.keep_if_present:
                 add(where, "record-members", "warning", f"{target}: set {member} is not in keep")
             _check_source(cap, step, i, f"{target}.{member}", sub, None, inputs, position, ops, add)
+
+
+def _check_match(where, target, src: Source, tobj, add) -> None:
+    if not target.startswith("filter."):
+        add(where, "bad-match", "error", f"{target}: match applies to filter targets only")
+        return
+    if src.match in ("contains", "words"):
+        edm = _edm(tobj) if tobj is not True else None
+        if edm and edm != "Edm.String":
+            add(where, "bad-match", "error", f"{target}: match {src.match} needs a text field (it is {edm})")
+        if src.kind not in ("input", "item"):
+            add(where, "bad-match", "warning", f"{target}: match {src.match} is meant for searching with an input")
 
 
 def _type_check(where, target, input_type, transform, canonical, add):

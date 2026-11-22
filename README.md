@@ -249,6 +249,7 @@ Only approved capabilities generate artifacts:
 ```powershell
 ifs-agent-ops skills generate    --package ifs-customer-orders   # agent skills
 ifs-agent-ops connector generate --package ifs-customer-orders   # Power Platform custom connector
+ifs-agent-ops flow generate      --package ifs-customer-orders   # one Power Automate flow per capability action
 ```
 
 `--check` reports what would change without writing anything.
@@ -256,6 +257,20 @@ ifs-agent-ops connector generate --package ifs-customer-orders   # Power Platfor
 There is one connector per IFS service (`power-platform/connectors/<Projection>/`), using **Basic
 authentication through the on-premises data gateway**. The IFS username, password and gateway are chosen when
 someone creates the connection; they are never stored in the package.
+
+There is one flow per capability action (`power-platform/flows/<capability>/prepare.json` and `submit.json`,
+with a `report.md`). A flow is built from the action's inputs, steps, bindings and outputs, not from the
+connector's parameters:
+
+- It is called through an HTTP trigger that only the users listed in the deployment target may call.
+- It runs the steps in order. Per-line steps run one line at a time.
+- Every IFS error is mapped to the capability's error meanings.
+- It answers with JSON: `ok`, `error`, outputs or the proposal, questions and warnings.
+- `submit` writes nothing unless the request says `confirmed: true`. If it fails partway, it stops and returns
+  what it already created.
+
+Flows need the capability's lookups and warnings in structured form (`match` on filter bindings, warning
+conditions as `{field, equals | not_equals}`); prose rules are refused.
 
 In the TUI you approve from a confirmation dialog: review it and press Enter. The CLI approve commands only
 run in an interactive terminal and ask you to type back a one-time code shown on screen, because an agent could
@@ -286,6 +301,25 @@ Connectors are always created inside the solution by import, which keeps the gat
 create` loses it). A person still creates each connection (gateway, IFS username and password) and picks it on
 the connection reference; `status` lists what is left. The toolkit deploys to the development environment only:
 promote with Power Platform Pipelines. `apply` also writes the deployment settings file next to the target.
+
+Generated flows deploy into the same solution when `deploy.yaml` lists them:
+
+```yaml
+  flows:
+  - source: power-platform/flows/create-customer-order
+```
+
+The target file names who may call their triggers:
+
+```yaml
+flow_trigger_users:
+- maker@contoso.example
+```
+
+`apply` fills in the deployed connector's API name and that user list, imports the flows turned on, and
+records each flow's trigger URL under `flow_triggers` in the target file. The user list and the trigger URLs
+stay machine-local and never go into the package. Reading flows back and getting trigger URLs uses the Azure
+CLI sign-in (`az login --allow-no-subscriptions`).
 
 ### Validating the deployed path
 
