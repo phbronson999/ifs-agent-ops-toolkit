@@ -769,8 +769,17 @@ def _deploy_validate(args: argparse.Namespace, package) -> int:
     try:
         target = load_target(package.name, args.target)
         intent = load_intent(package)
+        if args.allow_writes and not args.yes:
+            if not _is_interactive():
+                print("error: --allow-writes runs the cases that write to IFS (for example, creating an order); "
+                      "rerun in a terminal to confirm, or pass --yes", file=sys.stderr)
+                return 2
+            if _ask(f"Run the runtime cases that WRITE to IFS through {target.environment}'s flows? [y/N] "
+                    ).strip().lower() not in ("y", "yes"):
+                print("Canceled; nothing ran.")
+                return 1
         run = dv.validate(intent, package, target, solution_check=not args.skip_solution_check,
-                          record=not args.no_record)
+                          record=not args.no_record, allow_writes=args.allow_writes)
     except (TargetError, IntentError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -1158,6 +1167,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     d_val.add_argument("--skip-solution-check", action="store_true",
                        help="do not upload the solution to the Power Apps checker")
     d_val.add_argument("--no-record", action="store_true", help="report the status without writing it")
+    d_val.add_argument("--allow-writes", action="store_true",
+                       help="also run runtime cases whose action writes to IFS (asks first)")
+    d_val.add_argument("--yes", action="store_true", help="with --allow-writes: do not ask")
     d_val.add_argument("--json", action="store_true")
 
     tgt = sub.add_parser("targets", help="deployment targets (machine-local, never committed)"

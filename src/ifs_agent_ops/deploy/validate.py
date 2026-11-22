@@ -5,8 +5,9 @@
 - **static**: deploy.yaml is valid; the generated connectors and skills are current;
 - **platform**: the environment matches deploy.yaml (no planned changes, no manual steps left), the
   solution exports, and the Power Apps checker reports no critical or high issues;
-- **runtime**: calls through the deployed path. They go through a flow, so they arrive with Phase 12;
-  until then this layer reports "not run".
+- **runtime**: the capability's runtime cases (``validation/<capability>.runtime.yaml``) called through the
+  deployed flows' HTTP triggers and checked against their expectations (Phase 12c). Cases of actions that write
+  to IFS run only when explicitly allowed; otherwise they are reported as not run.
 
 The **status engine** then sets each capability's ``runtime_validation.status`` from its findings (Phase 9b
 testing against IFS) and the deployed-path result:
@@ -70,11 +71,13 @@ class Run:
     started_at: str
     checks: list[Check] = field(default_factory=list)
     capabilities: list[CapabilityResult] = field(default_factory=list)
+    cases: list = field(default_factory=list)     # runtime CaseResult, with the flow responses (local only)
     path: Optional[Path] = None
 
     @property
     def deployed_ok(self) -> bool:
-        """No failure, and no skipped static or platform check (the runtime layer waits for Phase 12)."""
+        """No failure, and no skipped static or platform check (runtime cases that were not run, such as writes
+        without --allow-writes, do not block)."""
         return not any(c.status == FAIL or (c.status == NOT_RUN and c.layer != "runtime") for c in self.checks)
 
 
@@ -229,8 +232,42 @@ def runs_dir(package: Package) -> Path:
     return package.root / LOCAL_STATE_DIR / "runs"
 
 
+def _runtime(run: Run, intent: DeployIntent, package: Package, target: Target, allow_writes: bool,
+             caller=None) -> None:
+    """Run each deployed capability's runtime cases through its flows (writes only when allowed)."""
+    from ifs_agent_ops.deploy import runtime as rt
+    from ifs_agent_ops.operations.capability_store import load_capabilities
+
+    add = run.checks.append
+    flows = [Path(f.source).name for f in intent.power_platform.flows]
+    if not flows:
+        add(Check("runtime", "calls through the deployed flows", NOT_RUN, "deploy.yaml lists no flows"))
+        return
+    caps = load_capabilities(package)
+    for cap_id in flows:
+        cap = caps.get(cap_id)
+        if cap is None:
+            add(Check("runtime", cap_id, FAIL, "no such capability"))
+            continue
+        try:
+            cases = rt.load_cases(package, cap_id)
+        except rt.CaseError as exc:
+            add(Check("runtime", cap_id, FAIL, str(exc)))
+            continue
+        if not cases:
+            add(Check("runtime", cap_id, NOT_RUN, f"no runtime cases ({rt.cases_path(package, cap_id).relative_to(package.root)})"))
+            continue
+        writes = {a.name for a in cap.actions if a.requires_confirmation}
+        results = rt.run_cases(cap_id, cases, target.flow_triggers, writes, allow_writes,
+                               **({"caller": caller} if caller else {}))
+        for r in results:
+            add(Check("runtime", f"{cap_id}: {r.case} ({r.action})", r.status,
+                      r.detail + (f" [{r.seconds}s]" if r.seconds else "")))
+        run.cases += results
+
+
 def validate(intent: Optional[DeployIntent], package: Package, target: Target, pac: Optional[Pac] = None, *,
-             solution_check: bool = True, record: bool = True) -> Run:
+             solution_check: bool = True, record: bool = True, allow_writes: bool = False, caller=None) -> Run:
     pac = pac or Pac(target.environment_url)
     started = datetime.now(timezone.utc).replace(microsecond=0)
     run = Run(package.name, target.name, target.environment, started.isoformat())
@@ -240,8 +277,10 @@ def validate(intent: Optional[DeployIntent], package: Package, target: Target, p
         _platform(run, intent, package, target, pac, solution_check)
     else:
         run.checks.append(Check("platform", "deployed state", NOT_RUN, "static checks failed"))
-    run.checks.append(Check("runtime", "calls through the deployed path", NOT_RUN,
-                            "runtime calls go through a flow; they arrive with Phase 12 (dispatcher flow)"))
+    if any(c.status == FAIL and c.layer == "static" for c in run.checks):
+        run.checks.append(Check("runtime", "calls through the deployed flows", NOT_RUN, "static checks failed"))
+    else:
+        _runtime(run, intent, package, target, allow_writes, caller)
     _record(run, package, target, record)
     run.path.parent.mkdir(parents=True, exist_ok=True)
     data = asdict(run)

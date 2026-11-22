@@ -52,6 +52,13 @@ from ifs_agent_ops.operations.model import Operation, TypeRef
 ALL = ["Succeeded", "Failed", "Skipped", "TimedOut"]
 FAILED = ["Failed", "TimedOut"]
 DEFAULT_TOP = 50
+# A space anywhere in $filter breaks the request through the connector and the on-premises gateway (IFS answers
+# TYPES_NOT_COMPATIBLE, or finds nothing for a quoted value); a tab works. So operators are separated by tabs, and
+# a contains search on several words becomes one contains() per word (tested on DEV 2026-11-22).
+TAB = "\t"
+AND, OR = f"{TAB}and{TAB}", f"{TAB}or{TAB}"
+CALL_TIMEOUT = "PT60S"    # per IFS call; the HTTP trigger must answer within 120 seconds
+READ_RETRIES = {"type": "fixed", "count": 3, "interval": "PT5S"}
 USERS_TOKEN = "%%TRIGGER_USERS%%"
 API_PREFIX = "/providers/Microsoft.PowerApps/apis/"
 _SCHEMA_TYPES = {"string": "string", "decimal": "number", "integer": "integer", "boolean": "boolean",
@@ -317,15 +324,23 @@ class FlowBuilder:
             if match == "words":
                 words = (name, v)
             elif match in ("eq", "ne"):
-                parts.append(concat([V.of(f"{name} {match} "), odata_literal(v, t)]))
-            else:   # contains, case-insensitive
-                lower = v if v.is_const and v.const is None else (
-                    V.of(str(v.const).lower()) if v.is_const else V.e(f"toLower({v.expr})"))
-                parts.append(concat([V.of(f"contains(tolower({name}),"), odata_string(lower), V.of(")")]))
+                parts.append(concat([V.of(f"{name}{TAB}{match}{TAB}"), odata_literal(v, t)]))
+            else:   # contains, case-insensitive: one contains() per word (no spaces inside quoted values)
+                parts.append(self.contains_words(name, v))
         return parts, words
 
     @staticmethod
-    def joined(parts: list[V], sep: str = " and ") -> Optional[V]:
+    def contains_words(name: str, v: V) -> V:
+        head = f"contains(tolower({name}),'"
+        if v.is_const:
+            words = str(v.const or "").lower().split() or [""]
+            return V.of(AND.join(head + w.replace("'", "''") + "')" for w in words))
+        text = f"replace(toLower(trim(coalesce({v.expr}, ''))), '''', '''''')"
+        between = "')" + AND + head          # each space becomes: end this contains(), start the next
+        return V.e(f"concat({q(head)}, replace({text}, ' ', {q(between)}), {q(chr(39) + ')')})")
+
+    @staticmethod
+    def joined(parts: list[V], sep: str = AND) -> Optional[V]:
         if not parts:
             return None
         out = [parts[0]]
@@ -335,12 +350,17 @@ class FlowBuilder:
 
     # ── connector actions ────────────────────────────────────────────────────
 
-    def call(self, seq: Seq, step: Step, op: Operation, loop: Optional[str], name: str, params: dict) -> str:
+    def call(self, seq: Seq, step: Step, op: Operation, loop: Optional[str], name: str, params: dict,
+             operation_id: Optional[str] = None) -> str:
         cu = self.connectors[op.projection]
         seq.add(name, {"type": "OpenApiConnection", "inputs": {
             "host": {"apiId": API_PREFIX + api_token(cu.connector), "connectionName": cu.key,
-                     "operationId": cu.operation_ids[op.id]},
-            "parameters": params, "authentication": "@parameters('$authentication')"}})
+                     "operationId": operation_id or cu.operation_ids[op.id]},
+            "parameters": params, "authentication": "@parameters('$authentication')",
+            # reads retry a few times; writes never (a retried write could create a duplicate). Bounded, so the
+            # flow answers within the HTTP trigger's synchronous response limit
+            "retryPolicy": READ_RETRIES if step.role != "write" else {"type": "none"}},
+            "limit": {"timeout": CALL_TIMEOUT}})
         seq.side(self.unique(f"{name}_Failed"), self.set_error(self.failure(step, name, loop)), {name: FAILED})
         return name
 
@@ -400,7 +420,9 @@ class FlowBuilder:
         parts, words = self.filter_parts(step, op, loop)
         top = DEFAULT_TOP if op.kind == "query" else None
         before: list[tuple[str, dict]] = []
-        if words is None:
+        if render_path(op).aliases:
+            self.batch_step(inner, step, op, loop)
+        elif words is None:
             params = self.parameters(inner, step, op, loop, swagger_params, self.joined(parts), top)
             name = self.call(inner, step, op, loop, self.unique(pascal(step.id)), params)
             self.call_name[step.id] = name
@@ -416,6 +438,89 @@ class FlowBuilder:
         if step.description:
             cond["description"] = short_description(step.description)
         return before + [(if_name, cond)] + self.checks_after(step, op, loop)
+
+    # ── calls inside $batch (functions with parameter aliases) ───────────────
+
+    @staticmethod
+    def url_safe(v: V) -> V:
+        """Escape what IFS's batch request-line parser rejects (':' in date-times) and what URLs cannot carry."""
+        pairs = [("%", "%25"), (" ", "%20"), (":", "%3A"), ("#", "%23"), ("&", "%26")]
+        if v.is_const:
+            text = "null" if v.const is None else str(v.const)
+            for a, b in pairs:
+                text = text.replace(a, b)
+            return V.of(text)
+        expr = f"string({v.expr})"
+        for a, b in pairs:
+            expr = f"replace({expr}, {q(a)}, {q(b)})"
+        return V.e(expr)
+
+    def batch_step(self, seq: Seq, step: Step, op: Operation, loop: Optional[str]) -> None:
+        """Call a function that takes a parameter alias (P=@P, ?@P=<json>) inside $batch: flows cannot set a parameter
+        named @P, and the batch body carries the request line unchanged through the connector and gateway."""
+        from ifs_agent_ops.generators.connector import BATCH_BOUNDARY, BATCH_OPERATION_ID
+
+        cu = self.connectors[op.projection]
+        if not any(isinstance(o, dict) and o.get("operationId") == BATCH_OPERATION_ID
+                   for ops in cu.swagger.get("paths", {}).values() for o in ops.values()):
+            self.refuse(step, "the connector has no $batch operation (regenerate the connector)")
+        if op.method != "GET":
+            self.refuse(step, "only functions (GET) with parameter aliases can be called inside $batch")
+        rendered = render_path(op)
+        types = {p.name: p.type for p in op.path_parameters}
+        by_name = {pp.name: pp for pp in rendered.params}
+        url: list[V] = []
+        for piece in re.split(r"(\{\w+\})", rendered.path.lstrip("/")):
+            m = re.fullmatch(r"\{(\w+)\}", piece)
+            if not m:
+                url.append(V.of(piece))
+                continue
+            pp = by_name[m.group(1)]
+            b = step.bindings.get(f"path.{pp.logical}")
+            if b is None:
+                self.refuse(step, f"path parameter {pp.logical} is not bound")
+            v = self.source(b, step, loop)
+            url.append(self.url_safe(odata_literal(v, types.get(pp.logical)) if pp.literal else v))
+        for n, alias in enumerate(rendered.aliases):
+            b = step.bindings.get(f"path.{alias}")
+            if b is None:
+                self.refuse(step, f"parameter {alias} is not bound")
+            if b.kind == "record":
+                value = f"outputs({q(self.record(seq, step, f'path.{alias}', b.record, loop))})"
+            else:
+                value = self.source(b, step, loop).wdl()
+            url += [V.of(("?" if n == 0 else "&") + f"@{alias}="), V.e(f"uriComponent(string({value}))")]
+        line = concat(url)
+        target = line.const if line.is_const else "@{" + line.expr + "}"
+        crlf = "\r\n"
+        body = crlf.join([f"--{BATCH_BOUNDARY}", "Content-Type: application/http", "Content-Transfer-Encoding: binary",
+                          "", f"GET {target} HTTP/1.1", "Accept: application/json", "", "", f"--{BATCH_BOUNDARY}--",
+                          ""])
+        P = pascal(step.id)
+        request = seq.add(self.unique(f"Batch_{P}"), {"type": "Compose", "inputs": body,
+                                                      "description": f"{op.id} inside $batch (parameter alias)"})
+        self.used[op.projection] = cu
+        name = self.call(seq, step, op, loop, self.unique(P), {
+            "Content-Type": f"multipart/mixed;boundary={BATCH_BOUNDARY}", "batch": f"@outputs({q(request)})"},
+            operation_id=BATCH_OPERATION_ID)
+        self.call_name[step.id] = name
+        text = seq.add(self.unique(f"{P}_Response"), {
+            "type": "Compose", "inputs": f"@base64ToString(body({q(name)})?['$content'])"})
+        t = f"outputs({q(text)})"
+        status = f"int(substring({t}, add(indexOf({t}, 'HTTP/1.1 '), 9), 3))"
+        json_part = f"json(substring({t}, indexOf({t}, '{{'), add(sub(lastIndexOf({t}, '}}'), indexOf({t}, '{{')), 1)))"
+        err = self.failure(step, name, loop)
+        err["status"] = "@" + status
+        err["ifs_response"] = "@" + t
+        err["meaning"] = err["meaning"].replace(f"outputs({q(name)})?['statusCode']", status) \
+            if isinstance(err["meaning"], str) else err["meaning"]
+        ok = Seq()
+        ok.add(self.unique(f"Set_{var_name(step.id)}"), {"type": "SetVariable", "inputs": {
+            "name": var_name(step.id), "value": "@" + json_part}})
+        failed = Seq()
+        failed.add(self.unique(f"{P}_Failed_In_Batch"), self.set_error(err))
+        seq.add(self.unique(f"{P}_Succeeded"), {"type": "If", "expression": f"@less({status}, 400)",
+                                                "actions": ok.actions, "else": {"actions": failed.actions}})
 
     def after_step(self, seq: Seq, step: Step, op: Operation, loop: Optional[str]) -> None:
         sv = self.step_var(step.id)
@@ -516,7 +621,7 @@ class FlowBuilder:
         field_name, text = words
         sv = var_name(step.id)
         base = self.joined(parts)
-        prefix = f"concat({base.wdl()}, ' and ', " if base is not None else "concat("
+        prefix = f"concat({base.wdl()}, {q(AND)}, " if base is not None else "concat("
         P = pascal(step.id)
 
         def term(x: str) -> str:
@@ -524,7 +629,7 @@ class FlowBuilder:
 
         def search(target: Seq, name: str, terms_expr: str, sep: str, top: int) -> str:
             joined = f"join({terms_expr}, {q(sep)})"
-            if sep == " or ":
+            if sep == OR:
                 joined = f"concat('(', {joined}, ')')"
             params = self.parameters(target, step, op, loop, swagger_params, V.e(f"{prefix}{joined})"), top)
             return self.call(target, step, op, loop, self.unique(name), params)
@@ -537,7 +642,7 @@ class FlowBuilder:
             "from": f"@split(toLower(trim(coalesce({text.wdl()}, ''))), ' ')", "where": "@not(empty(item()))"}})
         terms = seq.add(self.unique(f"{P}_Terms"), {"type": "Select", "inputs": {
             "from": f"@body({q(word_list)})", "select": "@" + term("item()")}})
-        first = search(seq, P, f"body({q(terms)})", " and ", DEFAULT_TOP)
+        first = search(seq, P, f"body({q(terms)})", AND, DEFAULT_TOP)
         keep_rows(seq, first)
 
         refine = Seq()
@@ -558,10 +663,10 @@ class FlowBuilder:
         kept = Seq()
         kept_terms = kept.add(self.unique(f"{P}_Kept_Terms"), {"type": "Select", "inputs": {
             "from": f"@variables({q(sv + '_kept')})", "select": "@" + term("item()")}})
-        every = search(kept, f"{P}_Kept_Words", f"body({q(kept_terms)})", " and ", DEFAULT_TOP)
+        every = search(kept, f"{P}_Kept_Words", f"body({q(kept_terms)})", AND, DEFAULT_TOP)
         keep_rows(kept, every)
         anyw = Seq()
-        some = search(anyw, f"{P}_Any_Word", f"body({q(kept_terms)})", " or ", DEFAULT_TOP)
+        some = search(anyw, f"{P}_Any_Word", f"body({q(kept_terms)})", OR, DEFAULT_TOP)
         keep_rows(anyw, some)
         kept.add(self.unique(f"{P}_If_Still_None"), {
             "type": "If", "expression": f"@empty(variables({q(sv + '_rows')}))", "actions": anyw.actions,

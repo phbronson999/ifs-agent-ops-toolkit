@@ -330,8 +330,32 @@ ifs-agent-ops deploy validate --package ifs-customer-orders --target dev
 `validate` checks three layers. **Static**: `deploy.yaml` and the generated connectors and skills. **Platform**:
 the environment matches `deploy.yaml` with no manual steps left, the solution exports (Pipelines needs that),
 and the Power Apps checker reports no critical or high issues (it uploads the solution file to Microsoft's
-checker service; `--skip-solution-check` skips it, but then nothing is marked validated). **Runtime**: calls
-through the deployed path go through a flow, so they arrive with Phase 12.
+checker service; `--skip-solution-check` skips it, but then nothing is marked validated). **Runtime**: the
+capability's runtime cases (`validation/<capability>.runtime.yaml` in the package) are called through the
+deployed flows' HTTP triggers with your Azure CLI sign-in and checked against their expectations: the questions
+and warnings returned, how many rows each lookup found, or that a candidate is among them, and the outputs. Cases
+of an action that writes to IFS (`submit`) run only with `--allow-writes`, which asks first. Otherwise they are
+reported as not run and don't block.
+
+```yaml
+cases:
+  - name: known customer, part and coordinator
+    action: prepare
+    inputs: {customer_no: "C1", order_coordinator: "18", lines: [{catalog_no: "P1", quantity: 10}]}
+    expect: {ok: true, questions: [], matches: {find-customer: 1}, lines: [{check-part: 1}]}
+```
+
+Learned on the development environment: through the connector and the on-premises gateway, a **space anywhere
+in `$filter`** breaks the request (IFS answers `TYPES_NOT_COMPATIBLE`, or finds nothing for a quoted value). The
+generated flows separate filter operators with tabs, and a multi-word `contains` search becomes one `contains()`
+per word. Two more:
+
+- **Functions with a parameter alias** (`P=@P` with `?@P=<json>`, e.g. GetCustomerDefaults) are called inside an
+  OData `$batch`. A flow can't set a parameter named `@P`, IFS rejects the JSON inline in the path, and connector
+  policies don't take effect through the gateway. The batch body carries the request line unchanged; IFS wants `:`
+  in date-times written as `%3A` there.
+- **Error responses have no schema in the connector**, so IFS's error message reaches the flow. IFS error bodies
+  don't match the pinned spec, and a schema check would replace the message with a validation failure.
 
 It then sets each deployed capability's `runtime_validation.status`: **validated** when every requirement's
 latest finding passed (testing against IFS) and the deployed-path checks passed, **failed** when a finding
@@ -355,7 +379,7 @@ approval. Each run is also saved locally under `.ifs-agent-ops/runs/`.
 ## Status
 
 Early development, used against a real IFS Cloud TEST environment and a Power Platform development
-environment. Phases 0–11 and 12a of the [roadmap](docs/roadmap.md) are merged, and 12b is in review:
+environment. Phases 0–11, 12a and 12b of the [roadmap](docs/roadmap.md) are merged, and 12c is in review:
 
 - **Capture → operations → capability:** guided browser capture, sanitized recordings, canonical operations and
   curated capabilities, each approved by a person.
@@ -367,9 +391,10 @@ environment. Phases 0–11 and 12a of the [roadmap](docs/roadmap.md) are merged,
   in a development environment (idempotent); `deploy validate` checks the deployed path and records the
   capability's runtime-validation status (the pilot is **validated** on the development target).
 
-The pilot's `prepare` and `submit` flows are deployed to the development environment and turned on.
+The pilot's `prepare` and `submit` flows are deployed to the development environment, and `deploy validate`
+runs the pilot's runtime cases through them.
 
-**Next:** validating the flows through their HTTP triggers (Phase 12c), then the Microsoft 365 agent (Phase 13).
+**Next:** the Microsoft 365 agent (Phase 13).
 Promotion beyond development stays with Power Platform Pipelines.
 
 The project evolved from my Python-based IFS MCP implementation, which provides IFS authentication,

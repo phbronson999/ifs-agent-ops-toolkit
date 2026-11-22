@@ -10,8 +10,9 @@ Path rendering also decides how a value reaches IFS:
   ``'text'``, ``null``, ``Ns.Enum'Member'``, a number or a date-time. IFS needs ``null`` for
   parameters a new record does not have yet (the recordings send ``OrderNo=null``), which a quoted
   placeholder cannot express;
-- **parameter aliases** (``P=@P``) stay in the path; the JSON value is a query parameter ``P`` (flows cannot
-  set names starting with ``@``) that a connector policy sends to IFS as ``@P``.
+- **parameter aliases** (``P=@P``) stay in the path; the JSON value is a query parameter ``P``. Flows cannot set a
+  name starting with ``@`` (and connector policies do not apply through the gateway), so flows call these
+  operations inside ``$batch`` (``batch_operation``).
 """
 from __future__ import annotations
 
