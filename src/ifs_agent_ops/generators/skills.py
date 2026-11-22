@@ -60,6 +60,12 @@ def _source_text(src: Source) -> str:
         text = f"`{json.dumps(src.fixed)}`"
     elif kind == "derived":
         text = f"derived: {_one_line(src.derived)}"
+    elif kind == "record":
+        from ifs_agent_ops.operations.capability_validate import record_text
+
+        text = record_text(src.record)
+        if not src.record.same_as:
+            text += " (" + ", ".join(src.record.keep + [m + "?" for m in src.record.keep_if_present]) + ")"
     else:
         text = f"{kind} `{getattr(src, kind)}`" + (f" ({src.transform})" if src.transform else "")
     return text + (f" (note: {_one_line(src.note)})" if src.note else "")

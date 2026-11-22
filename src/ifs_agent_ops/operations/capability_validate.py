@@ -78,6 +78,7 @@ def field_sources(cap: Capability, step: Step, op: Operation, ops: dict[str, Ope
         if b is not None:
             detail = {"input": f"input {b.input}", "item": f"item {b.item}", "step": f"{b.step}.{b.field}",
                       "config": f"config {b.config}", "derived": f"derived: {b.derived}",
+                      "record": record_text(b.record) if b.record else "",
                       "fixed": f"fixed {b.fixed!r}"}[b.kind]
             if b.transform:
                 detail += f" ({b.transform})"
@@ -194,6 +195,18 @@ def validate_capability(cap: Capability, ops: dict[str, Operation]) -> list[Find
     return out
 
 
+def record_text(rec) -> str:
+    """One line describing a record source (review tables and skills)."""
+    if rec.same_as:
+        return f"record: the record sent to {rec.same_as}"
+    parts = [f"record: {' over '.join(reversed(rec.steps)) or '(new)'}, {len(rec.keep)} members"]
+    if rec.keep_if_present:
+        parts.append(f"+ {len(rec.keep_if_present)} when present")
+    if rec.set:
+        parts.append("set " + ", ".join(rec.set))
+    return "; ".join(parts)
+
+
 def _input_used(cap: Capability, name: str) -> bool:
     top, _, item = name.partition(".")
     for s in cap.steps:
@@ -227,6 +240,29 @@ def _check_source(cap, step, i, target, src: Source, tobj, inputs, position, ops
             add(where, "unobserved-field", "warning", f"{target}: {src.field} was not observed in {src_op.id} responses")
     elif src.kind == "config" and src.config not in cap.config:
         add(where, "unknown-config", "error", f"{target}: config {src.config!r} does not exist")
+    elif src.kind == "derived":
+        add(where, "not-executable", "warning", f"{target}: a prose (derived) value cannot be executed by a "
+            "generated flow; describe it as a record")
+    elif src.kind == "record":
+        rec = src.record
+        if rec.same_as is not None:
+            other = cap.step(rec.same_as)
+            if rec.same_as not in position or position[rec.same_as] >= i:
+                add(where, "bad-step-reference", "error", f"{target}: same_as {rec.same_as!r} must be an earlier step")
+            elif other is None or target not in other.bindings or other.bindings[target].kind != "record":
+                add(where, "bad-same-as", "error", f"{target}: step {rec.same_as!r} sends no record for {target}")
+            return
+        for sid in rec.steps:
+            if sid not in position or position[sid] >= i:
+                add(where, "bad-step-reference", "error", f"{target}: record step {sid!r} must be an earlier step")
+        overlap = sorted(set(rec.keep) & set(rec.keep_if_present))
+        if overlap:
+            add(where, "record-members", "error", f"{target}: listed in both keep and keep_if_present: "
+                + ", ".join(overlap))
+        for member, sub in rec.set.items():
+            if member not in rec.keep and member not in rec.keep_if_present:
+                add(where, "record-members", "warning", f"{target}: set {member} is not in keep")
+            _check_source(cap, step, i, f"{target}.{member}", sub, None, inputs, position, ops, add)
 
 
 def _type_check(where, target, input_type, transform, canonical, add):

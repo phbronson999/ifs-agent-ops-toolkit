@@ -229,3 +229,52 @@ def test_capability_files_must_match_their_id(drafted):
     (caps_dir(drafted) / "other.yaml").write_text(yaml.safe_dump(BASE), encoding="utf-8")
     with pytest.raises(ValueError, match="must match capability id"):
         load_capabilities(drafted)
+
+
+def _with_line_bindings(**bindings):
+    data = copy.deepcopy(BASE)
+    data["steps"][3]["bindings"].update(bindings)
+    return Capability.model_validate(data)
+
+
+def test_record_source_shape():
+    from ifs_agent_ops.operations.capability import Source
+
+    rec = Source.model_validate({"record": {"steps": ["defaults"], "keep": ["A", "B"],
+                                            "set": {"B": {"item": "qty"}, "C": {"fixed": None}}}})
+    assert rec.kind == "record" and rec.record.set["B"].kind == "item" and rec.record.set["C"].fixed is None
+    assert Source.model_validate({"record": {"same_as": "create-header"}}).record.same_as == "create-header"
+    with pytest.raises(ValueError, match="needs keep"):
+        Source.model_validate({"record": {"steps": ["defaults"]}})
+    with pytest.raises(ValueError, match="same_as takes nothing else"):
+        Source.model_validate({"record": {"same_as": "x", "keep": ["A"]}})
+
+
+def test_record_sources_are_checked(drafted):
+    approve_ops(drafted)
+    ops = load_operations(drafted)
+    good = _with_line_bindings(**{"body.LineNo": {"record": {"steps": ["defaults", "create-header"], "keep": ["A"],
+                                                          "keep_if_present": ["B"],
+                                                          "set": {"A": {"item": "qty"}}}}})
+    assert not [r for r in rules(good, ops) if r[1] in ("bad-step-reference", "record-members", "unknown-item")]
+
+    bad = _with_line_bindings(**{"body.LineNo": {"record": {"steps": ["create-line"], "keep": ["A"],
+                                                         "keep_if_present": ["A"],
+                                                         "set": {"Z": {"item": "nope"}}}},
+                                 "body.Qty": {"record": {"same_as": "defaults"}}})
+    found = rules(bad, ops)
+    for rule, severity in (("bad-step-reference", "error"), ("record-members", "error"),
+                           ("record-members", "warning"), ("unknown-item", "error"), ("bad-same-as", "error")):
+        assert ("step create-line", rule, severity) in found, rule
+
+    prose = _with_line_bindings(**{"body.LineNo": {"derived": "something clever"}})
+    assert ("step create-line", "not-executable", "warning") in rules(prose, ops)
+
+
+def test_record_source_text():
+    from ifs_agent_ops.operations.capability import Source
+    from ifs_agent_ops.operations.capability_validate import record_text
+
+    rec = Source.model_validate({"record": {"steps": ["line-defaults", "catalog-defaults"], "keep": ["A", "B"],
+                                            "keep_if_present": ["C"], "set": {"B": {"item": "qty"}}}}).record
+    assert record_text(rec) == "record: catalog-defaults over line-defaults, 2 members; + 1 when present; set B"
