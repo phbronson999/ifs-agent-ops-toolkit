@@ -35,6 +35,34 @@ def draft(package: Package) -> tuple[MergeReport, dict[str, int]]:
     return merge_draft(package, d.operations, d.workflows), d.skipped
 
 
+def redraft(package: Package, op_id: str):
+    """Re-derive one DRIFTED approved operation from the current recordings.
+
+    Drafting never rewrites an approved operation. This is the deliberate, human-triggered exception: the
+    operation takes the newly derived content, keeps its human text (title, description, review notes,
+    runtime requirements) and connector operation id, gets the next revision and goes back to draft without
+    an approval, so it is reviewed and approved again. Capabilities that pinned the old revision need
+    re-approval too. Raises ValueError when the operation is not approved or has not drifted."""
+    from ifs_agent_ops.operations.store import load_operations, save_operation
+
+    old = load_operations(package).get(op_id)
+    if old is None:
+        raise KeyError(f"No operation {op_id!r} in {package.name}")
+    if old.status != "approved":
+        raise ValueError(f"{op_id} is {old.status}; drafting already updates it (operations draft)")
+    new = draft_package(package, projections_with_snapshots(package)).operations.get(op_id)
+    if new is None:
+        raise ValueError(f"{op_id} is no longer in the recordings; deprecate it instead")
+    if new.derived() == old.derived():
+        raise ValueError(f"{op_id} has not drifted: the recordings agree with the approved definition")
+    redrafted = new.model_copy(update={
+        "connector_operation_id": old.connector_operation_id, "title": old.title, "description": old.description,
+        "review_notes": old.review_notes, "runtime_validation": old.runtime_validation,
+        "status": "draft", "approval": None, "revision": old.revision + 1})
+    save_operation(package, redrafted)
+    return redrafted
+
+
 def draft_summary(package: Package, report: MergeReport, skipped: dict[str, int]) -> str:
     ops = load_operations(package)
     lines = [f"Package {package.name}: {len(ops)} operation(s), {len(load_workflows(package))} workflow(s)."]
