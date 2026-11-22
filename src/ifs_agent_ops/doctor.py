@@ -375,8 +375,43 @@ def check_agents() -> list[Check]:
     atk = _run(["atk", "--version"])
     out.append(Check(c, "atk", PASS if atk else FAIL, f"Agents Toolkit CLI {atk.strip()}" if atk else "not found",
                      "" if atk else "npm install -g @microsoft/m365agentstoolkit-cli"))
-    out.append(Check(c, "agent targets", NOT_REQUIRED, "sign-in and environment checks arrive with Phase 13"))
+    out += _agent_targets(c)
     return out
+
+
+def _agent_targets(c: str) -> list[Check]:
+    """Packages with a generated agent: per target, whether it is rendered and provisioned."""
+    from ifs_agent_ops.deploy.agent import _read_env, work_dir
+    from ifs_agent_ops.deploy.targets import TargetError, list_targets, load_target
+    from ifs_agent_ops.generators.agent import REGISTRATION_VAR, REPORT_FILE, agent_root
+    from ifs_agent_ops.workspace.discovery import discover_packages
+
+    out = []
+    for pkg in discover_packages()[0]:
+        if not (agent_root(pkg) / REPORT_FILE).exists():
+            continue
+        names = list_targets(pkg.name)
+        if not names:
+            out.append(Check(c, f"{pkg.name} agent", WARN, "generated, but the package has no deployment target",
+                             f"ifs-agent-ops targets init --package {pkg.name} --target dev"))
+        for name in names:
+            label = f"{pkg.name} agent on {name}"
+            try:
+                target = load_target(pkg.name, name)
+            except TargetError as exc:
+                out.append(Check(c, label, FAIL, str(exc), "fix the target file"))
+                continue
+            env = _read_env(work_dir(pkg, target) / "env" / f".env.{name}")
+            if not env:
+                out.append(Check(c, label, WARN, "not rendered",
+                                 f"ifs-agent-ops agent render --package {pkg.name} --target {name}"))
+            elif not (env.get("TEAMS_APP_ID") and env.get(REGISTRATION_VAR)):
+                out.append(Check(c, label, WARN, "rendered, not provisioned",
+                                 f'cd "{work_dir(pkg, target)}" ; atk provision --env {name}'))
+            else:
+                out.append(Check(c, label, PASS, f"provisioned (app version {env.get('APP_VERSION', '?')})"))
+    return out or [Check(c, "agent targets", NOT_REQUIRED, "no package has a generated agent "
+                                                            "(ifs-agent-ops agent generate)")]
 
 
 def check_spfx() -> list[Check]:

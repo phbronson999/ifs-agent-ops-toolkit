@@ -644,6 +644,45 @@ def cmd_flow(args: argparse.Namespace) -> int:
     return 1 if not gen.ok or stale else 0
 
 
+def cmd_agent(args: argparse.Namespace) -> int:
+    """Microsoft 365 agent: generate the Agents Toolkit project; render it for a target (machine-local)."""
+    from ifs_agent_ops.workspace.discovery import find_package
+    from ifs_agent_ops.workspace.package import PackageError
+
+    try:
+        package = find_package(args.package)
+    except PackageError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.agent_command == "generate":
+        from ifs_agent_ops.generators.agent import generate
+
+        gen = generate(package, check=args.check)
+        for r in gen.results:
+            print(f"{r.action:<12} {r.path}" + (f"\n             {r.message}" if r.message else ""))
+        if gen.functions:
+            print(f"Functions: {', '.join(gen.functions)}. Render for a target with: ifs-agent-ops agent render "
+                  f"--package {package.name} --target <target>")
+        stale = args.check and any(r.action.startswith("would-") for r in gen.results)
+        return 1 if not gen.ok or stale else 0
+    from ifs_agent_ops.deploy.agent import AgentError, render
+    from ifs_agent_ops.deploy.targets import TargetError, load_target
+
+    try:
+        target = load_target(package.name, args.target)
+        out = render(package, target)
+    except (TargetError, AgentError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"Rendered the agent for {target.name} ({target.environment}) in {out.folder}")
+    print(f"Environment file: {out.env_file}")
+    print("Next, in a terminal (signs in to Microsoft 365" + ("" if out.provisioned else
+          "; the OAuth registration asks for the Entra app's client id and secret") + "):")
+    print(f'  cd "{out.folder}"')
+    print(f"  atk provision --env {target.name}")
+    return 0
+
+
 def cmd_deploy(args: argparse.Namespace) -> int:
     """Deployment intent (deploy.yaml): scaffold it, check it."""
     import json
@@ -1110,6 +1149,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     f_gen.add_argument("--check", action="store_true", help="write nothing; exit 1 if a file is missing or stale")
     _add_output(f_gen)
 
+    agt = sub.add_parser("agent", help="Microsoft 365 agent generated from approved capabilities (calls the flows)"
+                         ).add_subparsers(dest="agent_command", required=True)
+    a_gen = agt.add_parser("generate", help="generate <package>/agent/m365-agent/ (Agents Toolkit project)")
+    a_gen.add_argument("--package", required=True)
+    a_gen.add_argument("--check", action="store_true", help="write nothing; exit 1 if a file is missing or stale")
+    a_ren = agt.add_parser("render", help="render the agent for a target into ~/.ifs-agent-ops/agents/ "
+                                          "(then: atk provision --env <target>)")
+    a_ren.add_argument("--package", required=True)
+    a_ren.add_argument("--target", required=True)
+
     skl = sub.add_parser("skills", help="agent skills generated from approved capabilities").add_subparsers(
         dest="skills_command", required=True)
     s_gen = skl.add_parser("generate", help="generate <package>/agent/skills/<capability>.md from approved capabilities")
@@ -1214,6 +1263,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_connector(args)
     if args.command == "flow":
         return cmd_flow(args)
+    if args.command == "agent":
+        return cmd_agent(args)
     if args.command == "capture":
         return cmd_capture(args)
 
