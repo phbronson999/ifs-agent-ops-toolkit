@@ -6,7 +6,12 @@ from collections import Counter
 from typing import Optional
 
 from ifs_agent_ops.capture.har_export import export
-from ifs_agent_ops.capture.session import CaptureError, CaptureSession, new_session
+from ifs_agent_ops.capture.session import (
+    CaptureError,
+    CaptureSession,
+    new_session,
+    workflow_from_intent,
+)
 from ifs_agent_ops.capture.store import RAW_HAR_FILE, CaptureStore, clean_event
 
 PROTOCOL_VERSION = 1
@@ -34,9 +39,14 @@ def _next_step(s: CaptureSession) -> str:
         cur = s.current()
         return (f"Perform '{cur.title}' in IFS, then mark it complete (or skip it)." if cur else
                 "Every planned task is done: add another task or stop the recording.")
-    return (f"Import it: ifs-agent-ops capture import {s.id} --package <package>"
-            + ("" if s.workflow else " --workflow <workflow>") if not s.imports else
+    return (f"Import it: ifs-agent-ops capture import {s.id} --package <package>" if not s.imports else
             f"Imported as {', '.join(s.imports)}. Start a new planned recording when more evidence is needed.")
+
+
+def session_workflow(s: CaptureSession) -> str:
+    """The package recordings folder for the session: as planned, else derived from the intent (sessions made
+    before the side panel's workflow field was filled in automatically)."""
+    return s.workflow or workflow_from_intent(s.intent)
 
 
 def resolve(store: CaptureStore, session_id: Optional[str]) -> str:
@@ -139,9 +149,7 @@ def import_session(store: CaptureStore, session_id: str, package, workflow: Opti
     s = store.load(session_id)
     if s.status != "stopped":
         raise CaptureError(f"session {session_id} is {s.status}; stop the recording before importing it")
-    workflow = workflow or s.workflow
-    if not workflow:
-        raise CaptureError("no workflow for this session; pass --workflow (the package recordings folder)")
+    workflow = workflow or session_workflow(s)
     events = store.events(session_id)
     har, plan = export(s, events)
     if not har["log"]["entries"]:

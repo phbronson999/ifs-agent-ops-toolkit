@@ -227,11 +227,30 @@ def test_only_stopped_sessions_with_calls_import(store, pkg):  # noqa: F811
     service.apply(store, sid, "stop", ts=2.0)
     with pytest.raises(CaptureError, match="no IFS calls"):
         service.import_session(store, sid, pkg)
-    nowf = service.create(store, "y", ["a"])["id"]
-    service.apply(store, nowf, "start", ifs_origin=ORIGIN, ts=1.0)
-    service.apply(store, nowf, "stop", ts=2.0)
-    with pytest.raises(CaptureError, match="--workflow"):
-        service.import_session(store, nowf, pkg)
+
+
+def test_a_session_without_a_workflow_takes_one_from_the_intent(store, pkg):  # noqa: F811
+    from ifs_agent_ops.capture.session import CaptureSession, workflow_from_intent
+    from ifs_agent_ops.tui.status import pending_sessions
+
+    assert workflow_from_intent("I want to teach the builder how to create a Purchase Requisition") ==         "create-purchase-requisition"
+    assert workflow_from_intent("I want to teach the builder how create a requisition") == "create-requisition"
+    assert workflow_from_intent("Report time on a shop order") == "report-time-on-shop-order"
+    assert workflow_from_intent("!!!") == "recording"
+    assert len(workflow_from_intent("how to " + "word " * 30)) <= 40
+
+    s = service.create(store, "I want to teach the builder how to create an invoice", ["a"])   # side panel: empty
+    assert s["workflow"] == "create-invoice" and s["id"].endswith("-create-invoice")
+
+    # a session saved before this (workflow empty) is still offered and imported under the derived folder
+    sid = demonstrate(store)
+    service.apply(store, sid, "stop", ts=109.0)
+    with store.edit(sid) as live:
+        live.workflow = None
+    assert isinstance(store.load(sid), CaptureSession) and store.load(sid).workflow is None
+    assert sid in [x.id for x in pending_sessions(pkg)]
+    result, _ = service.import_session(store, sid, pkg)
+    assert result.recording.parent.name == "create-customer-order"
 
 
 # ── surfaces: local API (extension), CLI, MCP ───────────────────────────────
