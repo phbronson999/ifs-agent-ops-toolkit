@@ -8,6 +8,12 @@ def no_real_test_log(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_toolkit_home(tmp_path_factory, monkeypatch):
+    """Capture sessions, targets and agent copies live in the toolkit home: never read the machine's real one."""
+    monkeypatch.setenv("IFS_AGENT_OPS_HOME", str(tmp_path_factory.mktemp("toolkit-home")))
+
+
+@pytest.fixture(autouse=True)
 def fixed_reviewer(monkeypatch):
     """Approvals record git user.name (or the OS login); pin it so tests do not depend on the machine."""
     from ifs_agent_ops.operations import approval

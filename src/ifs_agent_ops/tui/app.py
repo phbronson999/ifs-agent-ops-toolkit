@@ -1,6 +1,11 @@
-"""Guided review and approval TUI: pick a package, then follow the path from recording to generation.
+"""Guided TUI: pick a package, then follow the builder's path from recording to a deployed agent.
 
-Screens: package picker -> package (tabs: Overview, Recordings, Operations, Capabilities, Testing, Generate).
+The path: plan and record in the browser side panel; import here; choose the IFS services and pin their metadata;
+draft; work the recording into a capability with Claude and test it against IFS TEST (through the MCP server);
+approve; generate; deploy; prove the deployed path; publish the agent. The Overview tab always names the next step.
+
+Screens: package picker -> package (tabs: Overview, Recordings, Operations, Capabilities, Testing, Generate, Deploy).
+Writes to IFS never start here: runtime cases that write run only from the command line with --allow-writes.
 Approvals use the same rules as the CLI (``operations.approval``, ``approve_capability``). The TUI confirms with
 a dialog (Enter approves): an agent cannot drive it, so no code is typed here; the CLI keeps the one-time code.
 The reviewer's name is taken from git (``user.name``) or the OS login. Letter keys work with Caps Lock on.
@@ -28,6 +33,7 @@ from textual.widgets import (
     Header,
     Label,
     OptionList,
+    SelectionList,
     Static,
     TabbedContent,
     TabPane,
@@ -35,6 +41,7 @@ from textual.widgets import (
     Tree,
 )
 from textual.widgets.option_list import Option
+from textual.widgets.selection_list import Selection
 
 from ifs_agent_ops.operations.approval import reviewer_name
 from ifs_agent_ops.tui import status as st
@@ -192,6 +199,73 @@ class ConfirmDialog(ModalScreen[bool]):
         self.dismiss(False)
 
 
+class PickDialog(ModalScreen[str | None]):
+    """Pick one item from a list (Enter picks, Esc cancels). Returns the item's id."""
+    BINDINGS: ClassVar[list[Binding]] = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, title: str, text: str, items: list[tuple[str, Text | str]]) -> None:
+        super().__init__()
+        self.title_text, self.text, self.items = title, text, items
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="dialog"):
+            yield Label(self.title_text, classes="dialog-title")
+            yield Static(self.text, classes="dialog-text")
+            yield OptionList(*[Option(prompt, id=key) for key, prompt in self.items], id="pick")
+
+    def on_mount(self) -> None:
+        self.query_one("#pick", OptionList).focus()
+
+    @on(OptionList.OptionSelected, "#pick")
+    def picked(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(event.option.id)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class ServicesDialog(ModalScreen[list[str] | None]):
+    """Choose the IFS services (projections) the package uses. Space toggles, Enter (or OK) confirms."""
+    BINDINGS: ClassVar[list[Binding]] = [Binding("escape", "cancel", "Cancel"),
+                                         Binding("enter", "ok", "OK", priority=True)]
+
+    def __init__(self, services: list[st.ServiceUse]) -> None:
+        super().__init__()
+        self.services = services
+
+    def compose(self) -> ComposeResult:
+        preselect = {s.name for s in self.services if s.listed} or (
+            {self.services[0].name} if self.services and self.services[0].writes else set())
+        with Vertical(classes="dialog"):
+            yield Label("IFS services this package uses", classes="dialog-title")
+            yield Static("The recordings call these IFS services, busiest writers first. Pick the ones the "
+                         "capability is about: they go into package.yaml, and their metadata is pinned in the "
+                         "package (needs the IFS sign-in). The web client also calls its own services (bookmarks, "
+                         "settings, navigation); leave those out. Space toggles, Enter confirms. Services already "
+                         "listed stay listed.", classes="dialog-text")
+            yield SelectionList[str](*[
+                Selection(Text.assemble((s.name, "bold"), f"   {s.calls} call(s), {s.writes} write(s)",
+                                        ("   listed" if s.listed else "", "green"),
+                                        ("   metadata pinned" if s.snapshot else "", "dim")),
+                          s.name, s.name in preselect, disabled=s.listed)
+                for s in self.services], id="services")
+            with Horizontal(classes="dialog-buttons"):
+                yield Button("OK", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#services", SelectionList).focus()
+
+    @on(Button.Pressed, "#ok")
+    def action_ok(self) -> None:
+        chosen = set(self.query_one("#services", SelectionList).selected)
+        self.dismiss([s.name for s in self.services if s.name in chosen or s.listed])
+
+    @on(Button.Pressed, "#cancel")
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class ApprovalDialog(ModalScreen[str | None]):
     """The human approval gate in the TUI: review what is being approved, then Enter (or Approve) confirms.
 
@@ -234,7 +308,7 @@ LOGO = (
     "▄▀█ █▀▀ █▀▀ █▄ █ ▀█▀   █▀█ █▀█ █▀▀",
     "█▀█ █▄█ ██▄ █ ▀█  █    █▄█ █▀▀ ▄▄█",
 )
-PIPELINE = ("record", "draft", "approve", "generate")
+PIPELINE = ("record", "test", "approve", "generate", "deploy")
 GRADIENT = ("#5fd7ff", "#5fafff", "#5f87ff", "#875fff", "#af5fff")
 
 
@@ -257,7 +331,7 @@ def banner() -> Text:
     for n, stage in enumerate(PIPELINE):
         t.append("◆" if n == 0 else "──◆", style=GRADIENT[n + 1] if n + 1 < len(GRADIENT) else GRADIENT[-1])
         t.append(f" {stage} ", style="dim")
-    t.append(f"\n\nreview and approval{f'  ·  v{ver}' if ver else ''}", style="dim italic")
+    t.append(f"\n\nfrom a recorded task to a deployed agent{f'  ·  v{ver}' if ver else ''}", style="dim italic")
     return t
 
 
@@ -277,6 +351,9 @@ class PackagePicker(Screen):
             if not self.packages:
                 yield Static("No packages found. Set IFS_AGENT_OPS_PACKAGES in the toolkit's .env "
                              "(paths separated by ';').", classes="warn")
+            yield Static("New package: ifs-agent-ops package init <folder> --name <name>, add the folder to "
+                         "IFS_AGENT_OPS_PACKAGES, and restart the toolkit server so the side panel and Claude see it.",
+                         classes="muted")
             for problem in problems:
                 yield Static(problem, classes="warn")
         yield Footer()
@@ -289,7 +366,7 @@ class PackagePicker(Screen):
 
 # ── package ─────────────────────────────────────────────────────────────────
 
-TABS = ("overview", "recordings", "operations", "capabilities", "testing", "generate")
+TABS = ("overview", "recordings", "operations", "capabilities", "testing", "generate", "deploy")
 TEST_STYLE = {"passed": "green", "failed": "bold red", "inconclusive": "yellow", "not tested": "dim"}
 
 
@@ -304,12 +381,21 @@ class PackageScreen(Screen):
         Binding("o,O", "approve_operations", "Approve its operations"),
         Binding("w,W", "write_review", "Review report"),
         Binding("g,G", "generate", "Generate"),
+        Binding("i,I", "import_session", "Import from side panel"),
+        Binding("m,M", "services", "Services and metadata"),
+        Binding("s,S", "plan", "Plan / status"),
+        Binding("y,Y", "apply", "Deploy"),
+        Binding("v,V", "validate", "Validate"),
+        Binding("n,N", "render_agent", "Render agent"),
         *[Binding(str(i), f"tab('{t}')", t.capitalize(), show=False) for i, t in enumerate(TABS, 1)],
     ]
     # action -> tabs where it applies (others are hidden from the footer)
-    ACTION_TABS: ClassVar[dict[str, set[str]]] = {"draft": {"operations", "recordings"}, "redraft": {"operations"}, "filter": {"operations"}, "approve": {"operations",
-                   "capabilities"}, "approve_operations": {"capabilities"}, "write_review": {"capabilities", "testing"},
-                   "generate": {"generate"}}
+    ACTION_TABS: ClassVar[dict[str, set[str]]] = {
+        "draft": {"operations", "recordings"}, "redraft": {"operations"}, "filter": {"operations"},
+        "approve": {"operations", "capabilities"}, "approve_operations": {"capabilities"},
+        "write_review": {"capabilities", "testing"}, "generate": {"generate"},
+        "import_session": {"recordings", "overview"}, "services": {"recordings", "overview"},
+        "plan": {"deploy"}, "apply": {"deploy"}, "validate": {"deploy"}, "render_agent": {"deploy"}}
 
     def __init__(self, package: Package) -> None:
         super().__init__()
@@ -318,7 +404,8 @@ class PackageScreen(Screen):
         self.caps: dict[str, st.CapabilityState] = {}
         self.recs: dict[str, st.RecordingInfo] = {}
         self.selected: dict[str, str | None] = {"recordings": None, "operations": None, "capabilities": None,
-                                                 "testing": None}
+                                                 "testing": None, "deploy": None}
+        self.view: st.Overview | None = None
         self.test_log = None  # the active profile's test log, resolved when the Testing tab first loads
         self.op_order: list[str] = []  # operation ids in list order (the detail view steps through them)
         self.analyses: dict[str, tuple] = {}  # recording -> (views, links), parsed once per refresh
@@ -352,6 +439,9 @@ class PackageScreen(Screen):
                     yield Tree("requirements", id="test-tree")
             with TabPane("6 Generate", id="generate"):
                 yield VerticalScroll(Static("Open this tab to check what generation would change.", id="gen-body"))
+            with TabPane("7 Deploy", id="deploy"), Horizontal():
+                yield OptionList(id="deploy-list", classes="side")
+                yield VerticalScroll(Static("", id="deploy-detail"), classes="detail")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -369,7 +459,8 @@ class PackageScreen(Screen):
 
     # the widget that gets focus when a tab is opened with its number key (arrows then act on it)
     TAB_FOCUS: ClassVar[dict[str, str]] = {"recordings": "#rec-list", "operations": "#op-table",
-                                           "capabilities": "#cap-list", "testing": "#test-list"}
+                                           "capabilities": "#cap-list", "testing": "#test-list",
+                                           "deploy": "#deploy-list"}
 
     def action_tab(self, tab: str) -> None:
         tabs = self.query_one("#tabs", TabbedContent)
@@ -412,6 +503,7 @@ class PackageScreen(Screen):
         self.app.call_from_thread(self.show_overview, view)
 
     def show_overview(self, view: st.Overview) -> None:
+        self.view = view
         self.caps = {c.id: c for c in view.capabilities}
         self.recs = {r.rel: r for r in view.recordings}
         self.drift = view.drifted
@@ -428,10 +520,28 @@ class PackageScreen(Screen):
                         style="yellow" if view.uncommitted else "green")
         else:
             body.append("  not a git repository\n", style="dim")
+        if view.sessions:
+            body.append("\nRecorded in the side panel, not imported yet\n", style="bold underline")
+            for s in view.sessions:
+                body.append(f"  {s.id}  ", style="yellow")
+                body.append(f"{s.intent}\n", style="dim")
         body.append("\nRecordings\n", style="bold underline")
         for r in view.recordings:
             body.append(f"  {r.state:<12}", style=STATE_STYLE.get(r.state, ""))
             body.append(f" {r.workflow}/{r.name}\n")
+        listed = [s for s in view.services if s.listed]
+        if view.services:
+            body.append("\nIFS services\n", style="bold underline")
+            for s in listed:
+                body.append(f"  {s.name}  ", style="bold")
+                body.append("metadata pinned\n" if s.snapshot else "metadata NOT pinned (m)\n",
+                            style="green" if s.snapshot else "yellow")
+            if not listed:
+                body.append("  none chosen yet (Recordings tab, m)\n", style="yellow")
+            others = len(view.services) - len(listed)
+            if others:
+                body.append(f"  {others} other service(s) the web client called (not part of the package)\n",
+                            style="dim")
         body.append("\nOperations\n", style="bold underline")
         body.append("  " + ", ".join(f"{n} {s}" for s, n in sorted(view.operations.items())))
         if view.drifted:
@@ -444,9 +554,30 @@ class PackageScreen(Screen):
             body.append("approval current" if c.approval_current else "approval NOT current",
                         style="green" if c.approval_current else "yellow")
             body.append(f", uses {len(c.operations)} operation(s); testing: {c.testing_text()}\n")
-        body.append("\nKeys: 1-6 switch tabs, arrows move, r refreshes, Esc goes back to the package list.\n",
-                    style="dim")
+        d = view.delivery
+        if d is not None:
+            body.append("\nDelivery\n", style="bold underline")
+            stale = [k for k, ok in d.generated.items() if not ok]
+            body.append("  generated: ")
+            if stale:
+                body.append(f"out of date: {', '.join(stale)}\n", style="yellow")
+            else:
+                body.append("skills, connector, flows and agent up to date\n", style="green")
+            for t in d.targets:
+                body.append(f"  target {t.name} ({t.environment}): ")
+                body.append("flows deployed" if t.flows_deployed else "not deployed",
+                            style="green" if t.flows_deployed else "yellow")
+                if t.agent:
+                    body.append(f", agent {t.agent}", style="green" if t.agent == "provisioned" else "yellow")
+                body.append("\n")
+            for cap, status in d.runtime.items():
+                body.append(f"  {cap}: runtime ")
+                body.append(status, style="green" if status == "validated" else "yellow")
+                body.append("\n")
+        body.append("\nKeys: 1-7 switch tabs, arrows move, r refreshes, Esc goes back to the package list. "
+                    "Testing against IFS happens in Claude (through the toolkit server).\n", style="dim")
         self.query_one("#overview-body", Static).update(body)
+        self.fill_deploy_list()
 
         self.fill_side_list("rec-list", "recordings", [
             (r.rel, item(r.name, r.state, f"{r.state} · {r.workflow}"
@@ -541,6 +672,9 @@ class PackageScreen(Screen):
         elif event.option_list.id == "test-list":
             self.selected["testing"] = key
             self.show_testing(key)
+        elif event.option_list.id == "deploy-list":
+            self.selected["deploy"] = key
+            self.show_deploy(key)
 
     @on(DataTable.RowHighlighted, "#op-table")
     def operation_highlighted(self, event: DataTable.RowHighlighted) -> None:
@@ -934,7 +1068,9 @@ class PackageScreen(Screen):
         self.app.call_from_thread(lambda: self.query_one("#gen-body", Static).update(text))
 
     def generation_text(self, check: bool) -> Text:
+        from ifs_agent_ops.generators.agent import generate as agent
         from ifs_agent_ops.generators.connector import generate as connector
+        from ifs_agent_ops.generators.flow import generate as flow
         from ifs_agent_ops.generators.skills import generate as skills
 
         def rel(path) -> str:
@@ -960,9 +1096,19 @@ class PackageScreen(Screen):
             line(t, r, rel(r.path))
         for e in gen.errors:
             t.append(f"  error: {e}\n", style="red")
+        flows = flow(self.package, check=check)
+        t.append("\nPower Automate flows (one per capability action)\n", style="bold underline")
+        for r in flows.results:
+            line(t, r, rel(r.path))
+        for e in flows.errors:
+            t.append(f"  error: {e}\n", style="red")
+        ag = agent(self.package, check=check)
+        t.append("\nMicrosoft 365 agent (calls the flows)\n", style="bold underline")
+        for r in ag.results:
+            line(t, r, rel(r.path))
         if check:
             t.append("\nOnly approved capabilities and operations generate. Press g to write these files "
-                     "(nothing is committed).\n", style="dim")
+                     "(nothing is committed). Then deploy them on the Deploy tab (7).\n", style="dim")
         return t
 
     def action_generate(self) -> None:
@@ -971,14 +1117,314 @@ class PackageScreen(Screen):
                 self.run_generate()
 
         self.app.push_screen(ConfirmDialog(
-            "Generate", "Write the agent skills and the Power Platform connector into the package from the approved "
-            "capabilities. Nothing is committed.", "Generate"), go)
+            "Generate", "Write the agent skills, the Power Platform connector, the flows and the Microsoft 365 agent "
+            "into the package from the approved capabilities. Nothing is committed.", "Generate"), go)
 
     @work(thread=True, exclusive=True, group="generate")
     def run_generate(self) -> None:
         text = self.generation_text(check=False)
         self.app.call_from_thread(self.app.push_screen, MessageDialog("Generated", text))
         self.app.call_from_thread(self.check_generation)
+        self.app.call_from_thread(self.load_overview)
+
+    # ── side panel sessions, IFS services and metadata (Recordings tab) ──
+
+    def action_import_session(self) -> None:
+        sessions = self.view.sessions if self.view else []
+        if not sessions:
+            self.notify("No stopped side-panel recordings to import. Record in Edge (IFS Agent Ops side panel), "
+                        "click Stop recording, then press r here.")
+            return
+
+        def confirm(session_id: str | None) -> None:
+            s = next((x for x in sessions if x.id == session_id), None)
+            if s is None:
+                return
+            self.app.push_screen(ConfirmDialog(
+                "Import the recording",
+                f"Import {s.id} into {self.package.name} as recordings/{s.workflow}/.\n\nIntent: {s.intent}\n\n"
+                "The import removes credentials and server names and redacts business values, then writes the "
+                "recording and its plan into the package. Nothing is committed: review it on this tab first.",
+                "Import"), lambda ok: ok and self.run_import(s.id))
+
+        if len(sessions) == 1:
+            confirm(sessions[0].id)
+        else:
+            self.app.push_screen(PickDialog("Import which recording?", "Stopped recordings from the side panel:",
+                                            [(s.id, Text.assemble((s.id, "bold"), "\n  ", (s.intent, "dim")))
+                                             for s in sessions]), confirm)
+
+    @work(thread=True, exclusive=True, group="import")
+    def run_import(self, session_id: str) -> None:
+        from ifs_agent_ops.capture import service
+        from ifs_agent_ops.capture.service import CaptureError
+        from ifs_agent_ops.capture.store import CaptureStore
+        from ifs_agent_ops.recordings.importer import ImportRefused
+
+        try:
+            result, plan = service.import_session(CaptureStore(), session_id, self.package)
+        except (CaptureError, ImportRefused) as exc:
+            self.app.call_from_thread(self.app.push_screen, MessageDialog("Import refused", str(exc)))
+            return
+        text = Text(f"{result.recording.relative_to(self.package.root).as_posix()}\n\n", style="bold")
+        text.append("plan complete\n" if plan["complete"] else "plan INCOMPLETE\n",
+                    style="green" if plan["complete"] else "yellow")
+        for t in plan["tasks"]:
+            text.append(f"  {t['title']}: {t['status']}, {t['calls']} call(s)\n")
+        for w in result.warnings:
+            text.append(f"warning: {w}\n", style="yellow")
+        text.append("\nNext: check the steps and calls here, then choose the IFS services (m).", style="dim")
+        self.app.call_from_thread(self.app.push_screen, MessageDialog("Imported", text))
+        self.app.call_from_thread(self.action_refresh)
+
+    def action_services(self) -> None:
+        services = st.recorded_services(self.package)
+        if not services:
+            self.notify("No recordings yet: nothing to choose from.")
+            return
+
+        def chosen(names: list[str] | None) -> None:
+            if names:
+                self.run_services(names)
+
+        self.app.push_screen(ServicesDialog(services), chosen)
+
+    @work(thread=True, exclusive=True, group="services")
+    def run_services(self, names: list[str]) -> None:
+        import asyncio
+
+        from ifs_agent_ops import profiles as prof
+        from ifs_agent_ops.ifs.errors import AuthenticationRequired, IfsApiError
+        from ifs_agent_ops.ifs.metadata.snapshot import (
+            SnapshotRefused,
+            fetch_snapshot,
+            snapshot_dir,
+        )
+
+        added = st.add_projections(self.package, names)
+        missing = [n for n in names if not (snapshot_dir(self.package, n) / "metadata.xml").exists()]
+        text = Text()
+        if added:
+            text.append(f"Added to package.yaml: {', '.join(added)}\n", style="green")
+        problems: list[str] = []
+        if missing:
+            from ifs_agent_ops.mcp_server.runtime import Runtime
+
+            async def pin() -> None:
+                rt = Runtime.for_profile(None)
+                try:
+                    for name in missing:
+                        try:
+                            await fetch_snapshot(rt.client, self.package, name, realm=rt.settings.realm)
+                            text.append(f"Metadata pinned: {name}\n", style="green")
+                        except (IfsApiError, SnapshotRefused) as exc:
+                            problems.append(f"{name}: {exc}")
+                finally:
+                    await rt.client.aclose()
+
+            try:
+                asyncio.run(pin())
+            except AuthenticationRequired:
+                problems.append("Not signed in to IFS. Ask Claude to sign you in (start_oauth), then press m again.")
+            except prof.ProfileError as exc:
+                problems.append(str(exc))
+        elif not added:
+            text.append("Nothing to do: the chosen services are listed and their metadata is pinned.\n")
+        for p in problems:
+            text.append(f"{p}\n", style="red")
+        if not problems:
+            text.append("\nNext: draft operations (Operations tab, d).", style="dim")
+        self.app.call_from_thread(self.app.push_screen, MessageDialog("IFS services", text))
+        self.app.call_from_thread(self.action_refresh)
+
+    # ── deploy (Deploy tab) ──
+
+    def fill_deploy_list(self) -> None:
+        from ifs_agent_ops.deploy.targets import list_targets
+
+        names = list_targets(self.package.name)
+        states = {t.name: t for t in (self.view.delivery.targets if self.view and self.view.delivery else [])}
+        self.fill_side_list("deploy-list", "deploy", [
+            (n, item(n, "current" if states.get(n) and states[n].flows_deployed else "needs approval",
+                     (states[n].environment if n in states else "deployment target")
+                     + (" · flows deployed" if states.get(n) and states[n].flows_deployed else "")))
+            for n in names])
+        self.show_deploy(self.selected["deploy"])
+
+    def deploy_intro(self, name: str | None) -> Text:
+        pkg = self.package.name
+        t = Text()
+        d = self.view.delivery if self.view else None
+        if d is None:
+            t.append("Deploying comes after every capability is approved and generated (Overview: next steps).\n\n",
+                     style="yellow")
+        if name is None:
+            t.append("No deployment target yet. On the command line:\n", style="bold")
+            t.append(f"  ifs-agent-ops deploy init --package {pkg} --publisher <publisher> --prefix <prefix>\n"
+                     f"  ifs-agent-ops targets init --package {pkg} --target dev\n")
+            t.append("Then add flow_trigger_users to the target file and press r.\n", style="dim")
+            return t
+        ts = next((x for x in d.targets if x.name == name), None) if d else None
+        t.append(f"Target {name}", style="bold")
+        if ts:
+            t.append(f"  {ts.environment}\n")
+            t.append("  flows: ")
+            t.append("deployed\n" if ts.flows_deployed else "not deployed\n",
+                     style="green" if ts.flows_deployed else "yellow")
+            if ts.agent:
+                t.append("  agent: ")
+                t.append(f"{ts.agent}\n", style="green" if ts.agent == "provisioned" else "yellow")
+        else:
+            t.append("\n")
+        for cap, status in (d.runtime.items() if d else []):
+            t.append(f"  {cap}: runtime ")
+            t.append(f"{status}\n", style="green" if status == "validated" else "yellow")
+        t.append("\ns plan and status (read-only)   y deploy (asks first)   v prove the deployed path (read-only "
+                 "cases)   n render the agent\n", style="dim")
+        t.append(f"Cases that write to IFS: ifs-agent-ops deploy validate --package {pkg} --target {name} "
+                 "--allow-writes (command line, asks first).\n", style="dim")
+        return t
+
+    def show_deploy(self, name: str | None, extra: Text | None = None) -> None:
+        body = self.deploy_intro(name)
+        if extra is not None:
+            body.append("\n")
+            body.append_text(extra)
+        self.query_one("#deploy-detail", Static).update(body)
+
+    def _deploy_context(self):
+        from ifs_agent_ops.deploy.intent import load_intent
+        from ifs_agent_ops.deploy.targets import load_target
+
+        name = self.selected["deploy"]
+        if name is None:
+            raise ValueError("no deployment target: create one with ifs-agent-ops targets init")
+        intent = load_intent(self.package)
+        if intent is None:
+            raise ValueError("no deploy.yaml: create one with ifs-agent-ops deploy init")
+        return load_target(self.package.name, name), intent
+
+    def deploy_errors(self):
+        from ifs_agent_ops.deploy import powerplatform as ppa
+        from ifs_agent_ops.deploy.intent import IntentError
+        from ifs_agent_ops.deploy.targets import TargetError
+
+        return (ValueError, TargetError, IntentError, ppa.DeployError, ppa.PacError, ppa.FlowApiError)
+
+    def action_plan(self) -> None:
+        self.show_deploy(self.selected["deploy"], Text("Asking the environment (pac)...", style="dim"))
+        self.run_plan()
+
+    @work(thread=True, exclusive=True, group="deploy")
+    def run_plan(self) -> None:
+        from ifs_agent_ops.deploy import powerplatform as ppa
+
+        try:
+            target, intent = self._deploy_context()
+            current = ppa.plan(intent, self.package, target)
+            text = Text("\n".join(ppa.describe(current)) + "\n")
+            steps = ppa.checklist(current)
+            if steps:
+                text.append("\nManual steps (a person does these in the environment):\n", style="bold")
+                for n, s in enumerate(steps, 1):
+                    text.append(f"  {n}. {s}\n")
+            text.append(f"\n{len(current.changes)} change(s) to deploy." + (" Press y to deploy them."
+                        if current.changes else ""), style="dim")
+        except self.deploy_errors() as exc:
+            text = Text(f"error: {exc}", style="red")
+        self.app.call_from_thread(self.show_deploy, self.selected["deploy"], text)
+
+    def action_apply(self) -> None:
+        self.show_deploy(self.selected["deploy"], Text("Planning (pac)...", style="dim"))
+        self.run_apply_plan()
+
+    @work(thread=True, exclusive=True, group="deploy")
+    def run_apply_plan(self) -> None:
+        from ifs_agent_ops.deploy import powerplatform as ppa
+
+        try:
+            target, intent = self._deploy_context()
+            current = ppa.plan(intent, self.package, target)
+        except self.deploy_errors() as exc:
+            self.app.call_from_thread(self.show_deploy, self.selected["deploy"], Text(f"error: {exc}", style="red"))
+            return
+        described = "\n".join(ppa.describe(current))
+        self.app.call_from_thread(self.show_deploy, self.selected["deploy"], Text(described))
+        if not current.changes:
+            self.app.call_from_thread(self.notify, "Nothing to deploy: the environment matches the package.")
+            return
+        self.app.call_from_thread(self.app.push_screen, ConfirmDialog(
+            f"Deploy to {target.environment}",
+            f"Import {len(current.changes)} change(s) into {target.environment}, turn the flows on and record their "
+            f"trigger URLs in the target file.\n\n{described}", "Deploy"),
+            lambda ok: ok and self.run_apply())
+
+    @work(thread=True, exclusive=True, group="deploy")
+    def run_apply(self) -> None:
+        from ifs_agent_ops.deploy import powerplatform as ppa
+
+        self.app.call_from_thread(self.show_deploy, self.selected["deploy"], Text("Deploying...", style="dim"))
+        try:
+            target, intent = self._deploy_context()
+            result = ppa.apply(intent, self.package, target)
+            text = Text(f"Imported: {', '.join(result.imported) or '-'}\n", style="green")
+            if result.turned_on:
+                text.append(f"Turned on: {', '.join(result.turned_on)}\n")
+            if result.triggers_recorded:
+                text.append(f"Trigger URLs recorded in {target.path}\n")
+            text.append("Verified: " + ppa.describe(result.after)[-1] + "\n")
+            steps = ppa.checklist(result.after)
+            if steps:
+                text.append("\nManual steps (a person does these in the environment):\n", style="bold")
+                for n, s in enumerate(steps, 1):
+                    text.append(f"  {n}. {s}\n")
+        except self.deploy_errors() as exc:
+            text = Text(f"error: {exc}", style="red")
+        self.app.call_from_thread(self.load_overview)
+        self.app.call_from_thread(self.show_deploy, self.selected["deploy"], text)
+
+    def action_validate(self) -> None:
+        self.app.push_screen(ConfirmDialog(
+            "Prove the deployed path",
+            "Run deployed-path validation: static and platform checks (this uploads the solution file to "
+            "Microsoft's Power Apps checker), then the runtime cases that only read from IFS, through the deployed "
+            "flows. The capability's runtime status is recorded in its file, for you to review and commit.\n\n"
+            "Cases that write to IFS are not run from here.", "Validate"),
+            lambda ok: ok and self.run_validate())
+
+    @work(thread=True, exclusive=True, group="deploy")
+    def run_validate(self) -> None:
+        from ifs_agent_ops.deploy import validate as dv
+
+        self.app.call_from_thread(self.show_deploy, self.selected["deploy"],
+                                  Text("Validating (this can take a few minutes)...", style="dim"))
+        try:
+            target, intent = self._deploy_context()
+            run = dv.validate(intent, self.package, target, solution_check=True, record=True, allow_writes=False)
+            text = Text("\n".join(dv.describe(run)) + f"\n\nRun record (local): {run.path}\n")
+        except self.deploy_errors() as exc:
+            text = Text(f"error: {exc}", style="red")
+        self.app.call_from_thread(self.load_overview)
+        self.app.call_from_thread(self.show_deploy, self.selected["deploy"], text)
+
+    def action_render_agent(self) -> None:
+        self.run_render()
+
+    @work(thread=True, exclusive=True, group="deploy")
+    def run_render(self) -> None:
+        from ifs_agent_ops.deploy.agent import AgentError, render
+
+        try:
+            target, _ = self._deploy_context()
+            out = render(self.package, target)
+            text = Text(f"Rendered the agent for {target.name} in {out.folder}\n", style="green")
+            text.append("\nNext, in a terminal (signs in to Microsoft 365" + ("" if out.provisioned else
+                        "; asks for the Entra app's client id and secret") + "):\n", style="bold")
+            text.append(f'  cd "{out.folder}"\n  atk provision --env {target.name}\n')
+        except (AgentError, *self.deploy_errors()) as exc:
+            text = Text(f"error: {exc}", style="red")
+        self.app.call_from_thread(self.load_overview)
+        self.app.call_from_thread(self.show_deploy, self.selected["deploy"], text)
 
 
 class OperationDetail(Screen[str | None]):

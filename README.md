@@ -171,6 +171,26 @@ ifs-agent-ops capture import <session> --package ifs-customer-orders
 
 Or tell Claude your intent: the MCP server (`capture_*` tools) proposes and tracks the plan.
 
+### The guided path in the TUI
+
+Run `ifs-agent-ops` with no arguments and pick the package. The **Overview** tab always names the next step and
+where to do it: in the browser side panel, in Claude, on a TUI tab (with its key) or on the command line.
+
+| Stage | Where |
+|---|---|
+| Plan and record | Edge, IFS Agent Ops side panel (or tell Claude your intent) |
+| Import the stopped recording | Recordings tab, `i` |
+| Choose the IFS services, pin their metadata | Recordings tab, `m` (adds them to `package.yaml`; needs the IFS sign-in) |
+| Draft operations | Operations tab, `d` |
+| Write the capability, test it against IFS TEST | Claude, through the toolkit server; results on the Testing tab |
+| Approve the operations, then the capability | Capabilities tab, `o`, then `a` |
+| Generate skills, connector, flows and the agent | Generate tab, `g` |
+| Deploy, prove the deployed path, render the agent | Deploy tab: `s` plan, `y` deploy, `v` validate, `n` render |
+| Publish the agent | terminal: `atk provision --env <target>` (signs in to Microsoft 365) |
+
+A few steps stay on the command line on purpose: `package init`, `deploy init` and `targets init` (once per
+package), runtime cases that write to IFS (`deploy validate --allow-writes`), and `atk provision`.
+
 ### Test log
 
 When Claude tests against IFS through the MCP server, every `call_protected_api` call is logged locally: the
