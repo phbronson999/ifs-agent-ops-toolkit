@@ -14,6 +14,15 @@ def isolated_toolkit_home(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_env_file(tmp_path_factory, monkeypatch):
+    """The CLI loads the toolkit's .env and `package init` lists new packages in it: never the real file."""
+    from ifs_agent_ops import env
+
+    monkeypatch.setattr(env, "REPO_ENV_FILE", tmp_path_factory.mktemp("toolkit-env") / ".env")
+    monkeypatch.setattr(env, "_FROM_FILE", {})
+
+
+@pytest.fixture(autouse=True)
 def fixed_reviewer(monkeypatch):
     """Approvals record git user.name (or the OS login); pin it so tests do not depend on the machine."""
     from ifs_agent_ops.operations import approval
