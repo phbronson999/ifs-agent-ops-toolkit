@@ -5,6 +5,8 @@ draft; work the recording into a capability with Claude and test it against IFS 
 approve; generate; deploy; prove the deployed path; publish the agent. The Overview tab always names the next step.
 
 Screens: package picker -> package (tabs: Overview, Recordings, Operations, Capabilities, Testing, Generate, Deploy).
+The picker creates a package (n) and registers it in the toolkit's .env, so the side panel and Claude find it without
+a restart. A recording nothing approved rests on can be removed (Delete) and recorded again.
 Writes to IFS never start here: runtime cases that write run only from the command line with --allow-writes.
 Approvals use the same rules as the CLI (``operations.approval``, ``approve_capability``). The TUI confirms with
 a dialog (Enter approves): an agent cannot drive it, so no code is typed here; the CLI keeps the one-time code.
@@ -31,6 +33,7 @@ from textual.widgets import (
     DataTable,
     Footer,
     Header,
+    Input,
     Label,
     OptionList,
     SelectionList,
@@ -302,6 +305,81 @@ class ApprovalDialog(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class NewPackageDialog(ModalScreen[tuple | None]):
+    """Create a package: a title, its permanent name and its folder. The name and folder follow the title until
+    they are edited. Creating writes the package skeleton and lists the folder in IFS_AGENT_OPS_PACKAGES (.env).
+    Returns (package, registration), or None when canceled."""
+    BINDINGS: ClassVar[list[Binding]] = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self) -> None:
+        super().__init__()
+        from ifs_agent_ops.workspace.discovery import default_parent
+
+        self.parent_dir = default_parent()
+        self.auto = {"name": "", "folder": ""}  # the values filled in from the title (kept while not edited)
+
+    def compose(self) -> ComposeResult:
+        example = "ifs-purchase-requisitions"
+        with Vertical(classes="dialog"):
+            yield Label("New package", classes="dialog-title")
+            yield Static("A package holds the recordings, operations, capabilities and generated files for one area "
+                         "of IFS work (for example purchase requisitions). Tab moves between fields, Enter creates.",
+                         classes="dialog-text")
+            yield Label("Title (shown in lists; can be renamed later)")
+            yield Input(placeholder="Purchase Requisitions", id="display")
+            yield Label("Package name (permanent: deployments and agents key on it)")
+            yield Input(placeholder=example, id="name")
+            yield Label("Folder")
+            yield Input(placeholder=str(self.parent_dir / example) if self.parent_dir else f"<folder>/{example}",
+                        id="folder")
+            yield Label("Description (optional)")
+            yield Input(id="description")
+            yield Static("", id="error", classes="warn")
+            with Horizontal(classes="dialog-buttons"):
+                yield Button("Create", variant="primary", id="create")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#display", Input).focus()
+
+    @on(Input.Changed, "#display")
+    def follow_title(self, event: Input.Changed) -> None:
+        from ifs_agent_ops.workspace.discovery import suggest_name
+
+        name = suggest_name(event.value)
+        fields = {"name": name, "folder": str(self.parent_dir / name) if self.parent_dir and name else ""}
+        for key, value in fields.items():
+            box = self.query_one(f"#{key}", Input)
+            if box.value == self.auto[key]:  # not edited by hand: keep following the title
+                box.value = value
+            self.auto[key] = value
+
+    @on(Input.Submitted)
+    @on(Button.Pressed, "#create")
+    def create(self) -> None:
+        from pathlib import Path
+
+        from ifs_agent_ops.workspace.discovery import create_package
+        from ifs_agent_ops.workspace.package import PackageError
+
+        value = {k: self.query_one(f"#{k}", Input).value.strip() for k in ("display", "name", "folder", "description")}
+        error = self.query_one("#error", Static)
+        if not value["name"] or not value["folder"]:
+            error.update("A package name and a folder are needed.")
+            return
+        try:
+            result = create_package(Path(value["folder"]).expanduser(), value["name"], display_name=value["display"],
+                                    description=value["description"])
+        except (PackageError, OSError) as exc:
+            error.update(str(exc))
+            return
+        self.dismiss(result)
+
+    @on(Button.Pressed, "#cancel")
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 # ── package picker ──────────────────────────────────────────────────────────
 
 LOGO = (
@@ -336,6 +414,8 @@ def banner() -> Text:
 
 
 class PackagePicker(Screen):
+    BINDINGS: ClassVar[list[Binding]] = [Binding("n,N", "new_package", "New package")]
+
     def compose(self) -> ComposeResult:
         from ifs_agent_ops.workspace.discovery import discover_packages
 
@@ -349,11 +429,9 @@ class PackagePicker(Screen):
                                                     (str(p.root), "dim")), id=p.name) for p in self.packages],
                              id="packages")
             if not self.packages:
-                yield Static("No packages found. Set IFS_AGENT_OPS_PACKAGES in the toolkit's .env "
-                             "(paths separated by ';').", classes="warn")
-            yield Static("New package: ifs-agent-ops package init <folder> --name <name>, add the folder to "
-                         "IFS_AGENT_OPS_PACKAGES, and restart the toolkit server so the side panel and Claude see it.",
-                         classes="muted")
+                yield Static("No packages yet: press n to create one.", classes="warn")
+            yield Static("n creates a new package and registers it, so the side panel and Claude see it right away "
+                         "(no restart).", classes="muted")
             for problem in problems:
                 yield Static(problem, classes="warn")
         yield Footer()
@@ -362,6 +440,22 @@ class PackagePicker(Screen):
     def open_package(self, event: OptionList.OptionSelected) -> None:
         package = next(p for p in self.packages if p.name == event.option.id)
         self.app.push_screen(PackageScreen(package))
+
+    def action_new_package(self) -> None:
+        self.app.push_screen(NewPackageDialog(), self.created)
+
+    async def created(self, result: tuple | None) -> None:
+        if result is None:
+            return
+        package, registration = result
+        await self.recompose()
+        self.app.push_screen(PackageScreen(package))
+        if registration.note:
+            self.app.push_screen(MessageDialog("Package created", f"Created {package.name} at {package.root}.\n\n"
+                                               + registration.note))
+        else:
+            where = f" and listed it in {registration.env_file}" if registration.env_file else ""
+            self.notify(f"Created {package.name}{where}. The side panel and Claude see it now.")
 
 
 # ── package ─────────────────────────────────────────────────────────────────
@@ -387,6 +481,7 @@ class PackageScreen(Screen):
         Binding("y,Y", "apply", "Deploy"),
         Binding("v,V", "validate", "Validate"),
         Binding("n,N", "render_agent", "Render agent"),
+        Binding("delete", "remove_recording", "Remove recording"),
         *[Binding(str(i), f"tab('{t}')", t.capitalize(), show=False) for i, t in enumerate(TABS, 1)],
     ]
     # action -> tabs where it applies (others are hidden from the footer)
@@ -395,6 +490,7 @@ class PackageScreen(Screen):
         "approve": {"operations", "capabilities"}, "approve_operations": {"capabilities"},
         "write_review": {"capabilities", "testing"}, "generate": {"generate"},
         "import_session": {"recordings", "overview"}, "services": {"recordings", "overview"},
+        "remove_recording": {"recordings", "overview"},
         "plan": {"deploy"}, "apply": {"deploy"}, "validate": {"deploy"}, "render_agent": {"deploy"}}
 
     def __init__(self, package: Package) -> None:
@@ -1177,6 +1273,88 @@ class PackageScreen(Screen):
         self.app.call_from_thread(self.app.push_screen, MessageDialog("Imported", text))
         self.app.call_from_thread(self.action_refresh)
 
+    def action_remove_recording(self) -> None:
+        """Remove a recording to record it again: an imported one nothing approved rests on, or a side-panel
+        recording that was not imported (or a plan never recorded)."""
+        from ifs_agent_ops.capture.store import CaptureStore
+        from ifs_agent_ops.recordings.remove import plan_removal
+        from ifs_agent_ops.workspace.package import PackageError
+
+        store = CaptureStore()
+        plans, items, blocked = {}, [], []
+        recs = sorted(self.recs.values(), key=lambda r: r.rel != self.selected["recordings"])  # selected first
+        for r in recs:
+            try:
+                plan = plan_removal(self.package, r.rel, store)
+            except PackageError:
+                continue
+            if plan.allowed:
+                plans[r.rel] = plan
+                items.append((f"rec:{r.rel}", item(f"{r.workflow}/{r.name}", r.state,
+                                                    f"in the package · {r.state}")))
+            else:
+                blocked.append(f"{r.workflow}/{r.name}: " + "; ".join(plan.blockers))
+        sessions = {s.id: s for s in st.discardable_sessions(self.package)}
+        for s in sessions.values():
+            where = "side panel, not imported" if s.status == "stopped" else "side panel, plan never recorded"
+            items.append((f"ses:{s.id}", item(s.id, "new", f"{where} · {s.intent}")))
+        if not items:
+            self.notify("Nothing to remove." + (" Approved work rests on every recording: "
+                                                + " / ".join(blocked) if blocked else ""), severity="warning")
+            return
+        text = "Remove a recording to record the task again. Removing never touches approved work."
+        if blocked:
+            text += "\n\nNot listed (approved or curated work rests on them):\n" + "\n".join(f"  {b}" for b in blocked)
+
+        def picked(key: str | None) -> None:
+            if key is None:
+                return
+            kind, _, ident = key.partition(":")
+            if kind == "rec":
+                plan = plans[ident]
+                body = ("This deletes from the package:\n  " + "\n  ".join(plan.describe()) + "\n\nNothing is "
+                        "committed: files already committed show as deletions in the package repository. Record the "
+                        "task again in the side panel, then import it (i).")
+                self.app.push_screen(ConfirmDialog("Remove the recording", body, "Remove"),
+                                     lambda ok: ok and self.run_remove(ident))
+            else:
+                s = sessions[ident]
+                body = (f"{s.id}\nIntent: {s.intent}\n\nThis deletes the side-panel recording (its plan and raw "
+                        "capture) from this computer. "
+                        + ("It was never imported, so nothing in the package changes." if s.status == "stopped"
+                           else "It was never recorded."))
+                self.app.push_screen(ConfirmDialog("Discard the side-panel recording", body, "Discard"),
+                                     lambda ok: ok and self.run_discard(ident))
+
+        self.app.push_screen(PickDialog("Remove which recording?", text, items), picked)
+
+    def run_remove(self, rel: str) -> None:
+        from ifs_agent_ops.capture.store import CaptureStore
+        from ifs_agent_ops.recordings.remove import RemovalRefused, remove_recording
+        from ifs_agent_ops.workspace.package import PackageError
+
+        try:
+            plan = remove_recording(self.package, rel, CaptureStore())
+        except (RemovalRefused, PackageError, OSError) as exc:
+            self.app.push_screen(MessageDialog("Not removed", str(exc)))
+            return
+        self.notify(f"Removed {plan.recording}" + (f" and {len(plan.operations_deleted)} draft operation(s)"
+                                                   if plan.operations_deleted else "") + ".")
+        self.action_refresh()
+
+    def run_discard(self, session_id: str) -> None:
+        from ifs_agent_ops.capture.session import CaptureError
+        from ifs_agent_ops.capture.store import CaptureStore
+        from ifs_agent_ops.recordings.remove import discard_session
+
+        try:
+            discard_session(CaptureStore(), session_id)
+        except (CaptureError, OSError) as exc:
+            self.app.push_screen(MessageDialog("Not discarded", str(exc)))
+            return
+        self.notify(f"Discarded {session_id}.")
+        self.action_refresh()
+
     def action_services(self) -> None:
         services = st.recorded_services(self.package)
         if not services:
@@ -1520,7 +1698,8 @@ class ReviewApp(App):
     .dialog { width: 90%; max-width: 120; height: auto; max-height: 90%; padding: 1 2;
               border: thick $primary; background: $surface; }
     ApprovalDialog .dialog { border: thick $success; }
-    MessageDialog, ConfirmDialog, ApprovalDialog { align: center middle; }
+    MessageDialog, ConfirmDialog, ApprovalDialog, PickDialog, NewPackageDialog { align: center middle; }
+    NewPackageDialog Input { margin-bottom: 1; }
     .dialog-title { text-style: bold; margin-bottom: 1; }
     .dialog-text { margin-bottom: 1; }
     .dialog-body { height: auto; max-height: 20; margin-bottom: 1; }

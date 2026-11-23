@@ -98,18 +98,38 @@ def cmd_har_analyze(args: argparse.Namespace) -> int:
 def cmd_package(args: argparse.Namespace) -> int:
     from pathlib import Path
 
-    from ifs_agent_ops.workspace.discovery import ENV_VAR, discover_packages
+    from ifs_agent_ops.workspace.discovery import (
+        ENV_VAR,
+        create_package,
+        discover_packages,
+    )
     from ifs_agent_ops.workspace.package import PackageError, init_package
 
     if args.package_command == "init":
         try:
-            p = init_package(Path(args.path), args.name, description=args.description, projections=args.projection,
-                             display_name=args.display_name)
-        except PackageError as exc:
+            if args.no_register:
+                p = init_package(Path(args.path), args.name, description=args.description,
+                                 projections=args.projection, display_name=args.display_name)
+                reg = None
+            else:
+                p, reg = create_package(Path(args.path), args.name, description=args.description,
+                                        display_name=args.display_name)
+                if args.projection:
+                    from ifs_agent_ops.tui.status import add_projections
+
+                    add_projections(p, args.projection)
+        except (PackageError, OSError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         print(f"created package '{p.name}' at {p.root}")
-        print(f"add it to {ENV_VAR} so the toolkit discovers its skills and recordings")
+        if reg is None:
+            print(f"add it to {ENV_VAR} so the toolkit discovers its skills and recordings")
+        elif reg.env_file:
+            print(f"listed in {ENV_VAR} ({reg.env_file}): the TUI, the side panel and Claude find it without a restart")
+        else:
+            print(f"already covered by {ENV_VAR}")
+        if reg is not None and reg.note:
+            print(f"note: {reg.note}")
         return 0
     packages, problems = discover_packages()
     for p in packages:
@@ -120,6 +140,38 @@ def cmd_package(args: argparse.Namespace) -> int:
         print(f"no packages found; set {ENV_VAR}")
     for problem in problems:
         print(f"warning: {problem}", file=sys.stderr)
+    return 0
+
+
+def cmd_record_remove(args: argparse.Namespace) -> int:
+    from ifs_agent_ops.capture.store import CaptureStore
+    from ifs_agent_ops.recordings.remove import (
+        RemovalRefused,
+        plan_removal,
+        remove_recording,
+    )
+    from ifs_agent_ops.workspace.discovery import find_package
+    from ifs_agent_ops.workspace.package import PackageError
+
+    try:
+        package = find_package(args.package)
+        store = None if args.keep_session else CaptureStore()
+        if not args.yes:
+            plan = plan_removal(package, args.recording, store)
+            if plan.blockers:
+                raise RemovalRefused(f"{plan.recording} cannot be removed: " + "; ".join(plan.blockers) + ".")
+            print("would remove (run again with --yes to remove):")
+            for line in plan.describe():
+                print(f"  {line}")
+            return 0
+        plan = remove_recording(package, args.recording, store)
+    except (PackageError, RemovalRefused) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print("removed:")
+    for line in plan.describe():
+        print(f"  {line}")
+    print("nothing is committed; record the task again and import it")
     return 0
 
 
@@ -944,6 +996,17 @@ def cmd_capture(args: argparse.Namespace) -> int:
             for w in result.warnings:
                 print(f"warning: {w}")
             return 0
+        if c == "discard":
+            from ifs_agent_ops.recordings.remove import discard_session
+
+            session = store.load(args.session)
+            if not args.yes:
+                print(f"would discard {session.id} ({session.status}, {len(session.imports)} import(s)): "
+                      f"{session.intent}\nrun again with --yes to delete its plan and raw capture from this computer")
+                return 0
+            discard_session(store, args.session)
+            print(f"discarded {args.session}")
+            return 0
         if c == "new":
             data = service.create(store, args.intent, args.task or [], args.workflow, args.package, args.optional)
         elif c == "show":
@@ -1019,6 +1082,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_init.add_argument("--display-name", default="", help="renameable human-facing title; --name is permanent")
     p_init.add_argument("--description", default="")
     p_init.add_argument("--projection", action="append", default=[], help="IFS projection (repeatable)")
+    p_init.add_argument("--no-register", action="store_true",
+                        help="do not list the folder in IFS_AGENT_OPS_PACKAGES (.env)")
     pkg.add_parser("list", help="list packages found via IFS_AGENT_OPS_PACKAGES")
 
     rec = sub.add_parser("record", help="recordings in packages").add_subparsers(dest="record_command", required=True)
@@ -1033,6 +1098,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                        help="keep business values (only sanitize + host normalization)")
     group.add_argument("--redact-values", action="store_true", help="redact business values (package default)")
     r_imp.add_argument("--force", action="store_true", help="replace an existing recording")
+    r_rm = rec.add_parser("remove", help="remove a recording nothing approved rests on, to record it again "
+                                         "(shows what it would remove; --yes removes)")
+    r_rm.add_argument("recording", help="recordings/<workflow>/<task>.har (relative to the package)")
+    r_rm.add_argument("--package", required=True, help="package name (from IFS_AGENT_OPS_PACKAGES) or path")
+    r_rm.add_argument("--yes", action="store_true", help="remove (without it, only show what would be removed)")
+    r_rm.add_argument("--keep-session", action="store_true",
+                      help="keep the side-panel capture session it was imported from")
 
     cap = sub.add_parser("capture", help="guided capture: intent, recording plan, task-bucketed browser recording"
                          ).add_subparsers(dest="capture_command", required=True)
@@ -1045,6 +1117,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     c_new.add_argument("--package", help="target package (optional)")
     _add_output(c_new)
     cap.add_parser("list", help="local capture sessions")
+    c_discard = cap.add_parser("discard", help="delete a capture session (plan and raw capture) from this computer")
+    c_discard.add_argument("session")
+    c_discard.add_argument("--yes", action="store_true", help="discard (without it, only show what would go)")
     c_show = cap.add_parser("show", help="plan, current task and progress")
     c_show.add_argument("session", nargs="?", help="session id (default: the session recording or being planned)")
     _add_output(c_show)
@@ -1257,7 +1332,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.command == "package":
         return cmd_package(args)
     if args.command == "record":
-        return cmd_record_import(args)
+        return cmd_record_remove(args) if args.record_command == "remove" else cmd_record_import(args)
     if args.command == "metadata":
         return cmd_metadata(args)
     if args.command == "operations":

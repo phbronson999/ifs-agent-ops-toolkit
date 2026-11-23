@@ -210,6 +210,21 @@ def pending_sessions(package: Package) -> list:
     return out
 
 
+def discardable_sessions(package: Package) -> list:
+    """Side-panel sessions the builder can throw away from this package's view: stopped recordings not imported
+    here (``pending_sessions``) and plans never started, meant for this package or for none."""
+    from ifs_agent_ops.capture.store import CaptureStore
+
+    try:
+        sessions = CaptureStore().list()
+    except OSError:
+        return []
+    names = {package.name, str(package.root)}
+    planned = [s for s in sessions if s.status == "planning" and s.started_at is None
+               and (not s.package or s.package in names)]
+    return pending_sessions(package) + planned
+
+
 # ── after approval: generation and delivery ─────────────────────────────────
 
 @dataclass

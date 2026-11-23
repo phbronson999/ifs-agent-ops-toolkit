@@ -178,8 +178,10 @@ where to do it: in the browser side panel, in Claude, on a TUI tab (with its key
 
 | Stage | Where |
 |---|---|
+| Create the package | package list, `n` (writes the skeleton and lists the folder in `.env`) |
 | Plan and record | Edge, IFS Agent Ops side panel (or tell Claude your intent) |
 | Import the stopped recording | Recordings tab, `i` |
+| Remove a recording to record it again | Recordings tab, `Delete` (only when nothing approved rests on it) |
 | Choose the IFS services, pin their metadata | Recordings tab, `m` (adds them to `package.yaml`; needs the IFS sign-in) |
 | Draft operations | Operations tab, `d` |
 | Write the capability, test it against IFS TEST | Claude, through the toolkit server; results on the Testing tab |
@@ -188,8 +190,19 @@ where to do it: in the browser side panel, in Claude, on a TUI tab (with its key
 | Deploy, prove the deployed path, render the agent | Deploy tab: `s` plan, `y` deploy, `v` validate, `n` render |
 | Publish the agent | terminal: `atk provision --env <target>` (signs in to Microsoft 365) |
 
-A few steps stay on the command line on purpose: `package init`, `deploy init` and `targets init` (once per
-package), runtime cases that write to IFS (`deploy validate --allow-writes`), and `atk provision`.
+A few steps stay on the command line on purpose: `deploy init` and `targets init` (once per package), runtime
+cases that write to IFS (`deploy validate --allow-writes`), and `atk provision`.
+
+A new package (`n` in the TUI, or `ifs-agent-ops package init <folder> --name <name>`) is listed in
+`IFS_AGENT_OPS_PACKAGES` in the toolkit's `.env`. The toolkit server re-reads that setting, so the side panel and
+Claude see the package without a restart. If the variable is set in your terminal's environment instead, that
+value wins and you are told to update it there.
+
+To redo a recording, remove it (`Delete` on the Recordings tab, or `ifs-agent-ops record remove
+recordings/<workflow>/<task>.har --package <package> --yes`). Removing deletes the recording, its observed
+workflow, the draft operations only it shows, and the side-panel session with its raw capture. It is refused
+while an approved operation or workflow cites the recording, or a capability rests on it. A side-panel recording
+that was never imported can be discarded the same way (or `ifs-agent-ops capture discard <session> --yes`).
 
 ### Test log
 
