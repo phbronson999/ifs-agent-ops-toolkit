@@ -202,7 +202,7 @@ def pending_sessions(package: Package) -> list:
     names = {package.name, str(package.root)}
     out = []
     for s in sessions:
-        if s.status != "stopped" or not s.workflow or (s.package and s.package not in names):
+        if s.status != "stopped" or (s.package and s.package not in names):
             continue
         if any((package.root / rel).exists() for rel in s.imports):
             continue

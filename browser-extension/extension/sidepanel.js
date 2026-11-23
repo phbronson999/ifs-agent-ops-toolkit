@@ -270,7 +270,7 @@ function pickerView() {
     el("h2", {}, "New recording"),
     el("label", {}, "Intent", intent),
     el("label", {}, "Recording plan", tasks),
-    el("label", {}, "Workflow (optional)", workflow),
+    el("label", {}, "Workflow folder (optional: taken from the intent when empty)", workflow),
     el("div", { class: "row" }, el("button", { class: "primary wide", disabled: !state.online, onclick: async () => {
       const titles = tasks.value.split("\n").map((t) => t.trim()).filter(Boolean);
       const s = await api("POST", "/sessions", { intent: intent.value, tasks: titles, workflow: workflow.value });

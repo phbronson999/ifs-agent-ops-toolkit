@@ -232,6 +232,24 @@ def _now() -> float:
     return datetime.now(timezone.utc).timestamp()
 
 
+_INTENT_LEAD = re.compile(r"^(?:i\s+(?:want|would like|need)\s+to\s+)?(?:teach|show)\s+(?:the\s+builder|the\s+agent|"
+                          r"claude|you|it)?\s*how\s+(?:to\s+)?|^how\s+to\s+", re.IGNORECASE)
+_ARTICLES = {"a", "an", "the"}
+
+
+def workflow_from_intent(intent: str, limit: int = 40) -> str:
+    """A workflow folder name from the intent, used when the demonstrator left it empty:
+    "I want to teach the builder how to create a Purchase Requisition" -> "create-purchase-requisition"."""
+    words = [w for w in re.split(r"[^a-z0-9]+", _INTENT_LEAD.sub("", intent.strip()).lower())
+             if w and w not in _ARTICLES]
+    out = ""
+    for w in words:
+        if len(out) + len(w) + 1 > limit:
+            break
+        out = f"{out}-{w}" if out else w
+    return out or "recording"
+
+
 def new_session_id(workflow: Optional[str], now: Optional[datetime] = None) -> str:
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d-%H%M%S")
     slug = re.sub(r"[^a-z0-9]+", "-", (workflow or "").lower()).strip("-")[:40]
@@ -247,7 +265,8 @@ def new_session(intent: str, tasks: list[str] = (), workflow: Optional[str] = No
     if workflow and not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", workflow):
         raise CaptureError(f"invalid workflow name {workflow!r}: use letters, digits, '.', '-' or '_'")
     now = now or datetime.now(timezone.utc)
-    s = CaptureSession(id=new_session_id(workflow, now), intent=intent.strip(), workflow=workflow or None,
+    workflow = workflow or workflow_from_intent(intent)
+    s = CaptureSession(id=new_session_id(workflow, now), intent=intent.strip(), workflow=workflow,
                        package=package or None, created_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"))
     marked = {t.strip() for t in optional}
     unknown = marked - {t.strip() for t in tasks}

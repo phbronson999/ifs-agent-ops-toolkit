@@ -1226,6 +1226,8 @@ class PackageScreen(Screen):
     # ── side panel sessions, IFS services and metadata (Recordings tab) ──
 
     def action_import_session(self) -> None:
+        from ifs_agent_ops.capture.service import session_workflow
+
         sessions = self.view.sessions if self.view else []
         if not sessions:
             self.notify("No stopped side-panel recordings to import. Record in Edge (IFS Agent Ops side panel), "
@@ -1238,7 +1240,8 @@ class PackageScreen(Screen):
                 return
             self.app.push_screen(ConfirmDialog(
                 "Import the recording",
-                f"Import {s.id} into {self.package.name} as recordings/{s.workflow}/.\n\nIntent: {s.intent}\n\n"
+                f"Import {s.id} into {self.package.name} as recordings/{session_workflow(s)}/.\n\n"
+                f"Intent: {s.intent}\n\n"
                 "The import removes credentials and server names and redacts business values, then writes the "
                 "recording and its plan into the package. Nothing is committed: review it on this tab first.",
                 "Import"), lambda ok: ok and self.run_import(s.id))
