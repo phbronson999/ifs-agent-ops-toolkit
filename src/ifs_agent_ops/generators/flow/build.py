@@ -818,6 +818,18 @@ class FlowBuilder:
 
     # ── gates ────────────────────────────────────────────────────────────────
 
+    def action_inputs(self) -> set[str]:
+        """Inputs this action uses: its confirm list and the inputs its steps bind or loop over. Other actions'
+        required inputs are not this action's to require."""
+        used = set(self.action.confirm)
+        for s in self.steps:
+            if s.for_each:
+                used.add(s.for_each)
+            for b in s.bindings.values():
+                if b.input:
+                    used.add(b.input.partition(".")[0])
+        return used
+
     def gates(self) -> list[tuple[str, dict]]:
         out = []
         if self.confirming:
@@ -827,7 +839,8 @@ class FlowBuilder:
                 "else": {"actions": {}}, "actions": {self.unique("Refuse_Unconfirmed"): {
                     "runAfter": {}, **self.set_error({"meaning": "confirmation-required",
                                                       "detail": "send confirmed: true after the user confirmed"})}}}))
-            required = [i for i in self.cap.inputs if i.required]
+            used = self.action_inputs()
+            required = [i for i in self.cap.inputs if i.required and i.name in used]
             if required:
                 conds = [missing(prop("triggerBody()", i.name), i.type) for i in required]
                 out.append((self.unique("Check_Required_Inputs"), {
@@ -835,7 +848,7 @@ class FlowBuilder:
                     "else": {"actions": {}}, "actions": {self.unique("Refuse_Missing_Inputs"): {
                         "runAfter": {}, **self.set_error({"meaning": "missing-input", "detail": "required: " +
                                                           ", ".join(i.name for i in required)})}}}))
-                for lst in [i for i in self.cap.inputs if i.type == "list" and i.items]:
+                for lst in [i for i in self.cap.inputs if i.type == "list" and i.items and i.name in used]:
                     req = [it for it in lst.items if it.required]
                     if not req:
                         continue

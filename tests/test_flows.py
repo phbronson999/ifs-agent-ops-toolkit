@@ -137,6 +137,16 @@ def test_submit_steps_bindings_and_response(flows_pkg):
     assert acts["Outcome"]["runAfter"] == {"Try": ["Succeeded", "Failed", "Skipped", "TimedOut"]}
 
 
+def test_confirming_action_requires_only_its_own_inputs(flows_pkg):
+    _variant(flows_pkg, lambda d: d["actions"].append(    # a second confirming action that uses only the lines
+        {"name": "add-lines", "requires_confirmation": True, "confirm": ["lines"], "steps": ["find"]}))
+    assert generate(flows_pkg).ok
+    gate = _actions(flows_pkg, "add-lines")["Refuse_Missing_Inputs"]
+    assert gate["inputs"]["value"]["detail"] == "required: lines"        # not customer_no or wanted
+    gate = _actions(flows_pkg, "submit")["Refuse_Missing_Inputs"]
+    assert gate["inputs"]["value"]["detail"] == "required: customer_no, wanted, lines"
+
+
 def test_prepare_without_questions_asks_nothing(flows_pkg):
     acts = _actions(flows_pkg, "prepare")                 # BASE's prepare does not return questions
     assert not any(name.startswith("Ask_") for name in acts)
