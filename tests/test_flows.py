@@ -137,8 +137,29 @@ def test_submit_steps_bindings_and_response(flows_pkg):
     assert acts["Outcome"]["runAfter"] == {"Try": ["Succeeded", "Failed", "Skipped", "TimedOut"]}
 
 
+def test_prepare_without_questions_asks_nothing(flows_pkg):
+    acts = _actions(flows_pkg, "prepare")                 # BASE's prepare does not return questions
+    assert not any(name.startswith("Ask_") for name in acts)
+    assert "Initialize_questions" not in acts
+
+
+def test_every_variable_used_is_initialized(flows_pkg):
+    _variant(flows_pkg, lambda d: d["actions"][0].update(returns=["questions", "warnings"]))
+    assert generate(flows_pkg).ok
+    for action in ("prepare", "submit"):
+        acts = _actions(flows_pkg, action)
+        declared = {v["name"] for a in acts.values() if a.get("type") == "InitializeVariable"
+                    for v in a["inputs"]["variables"]}
+        used = {a["inputs"]["name"] for a in acts.values()
+                if a.get("type") in ("SetVariable", "AppendToArrayVariable")}
+        assert used <= declared, (action, used - declared)
+
+
 def test_prepare_asks_questions_and_writes_nothing(flows_pkg):
+    _variant(flows_pkg, lambda d: d["actions"][0].update(returns=["questions", "warnings"]))
+    assert generate(flows_pkg).ok
     acts = _actions(flows_pkg, "prepare")
+    assert "Initialize_questions" in acts
     assert acts["Ask_Ask_Date"]["expression"] == "@empty(coalesce(triggerBody()?['wanted'], ''))"
     assert not any(a.get("type") == "OpenApiConnection" and "create" in a["inputs"]["host"]["operationId"]
                    for a in acts.values())
