@@ -320,6 +320,13 @@ Results: PASS, WARN, FAIL, NOT REQUIRED (for the capability asked about).
 | 13 | **Agent artifacts + agent adapter** (merged) | Baseline is the **proven path** (§6.1): a declarative agent with an API-plugin/OpenAPI action whose endpoint is the authenticated Power Automate HTTP trigger of the Phase 12 flow, using OAuthPluginVault with Entra delegated auth. Generated into `agent/<name>/` (Agents Toolkit layout); `atk` adapter with `--env <target>`; the plugin's server URL resolved per target from the deployed flow's trigger URL; `doctor --for agents` | agent provisioned to DEV reaches IFS through the generated capability, with the same request/response as the proven hand-built agent |
 | 14 | **Promotion and CI readiness** | only artifacts whose capability is runtime `validated` (or `conditional`, within its recorded scope) may be promoted; managed solution versions, `promote` via Pipelines/`pac pipeline deploy`, agent version promotion, service-principal auth paths, release records | DEV → TEST promotion reproducible from CLI |
 
+### 6.0 Backlog
+
+Open items are tracked as GitHub issues (not scheduled into a phase yet). From the shop-order curation (2026-11-23):
+write batches #43, read all pages #44, redaction of plan titles and filter literals #45, nested `$expand` parsing #46,
+value-only drafted bindings #47, test endpoint projection root #48, `*_Default()` review hint #49, side-panel
+sessions shown as pending in the wrong package #42, and TUI items #38-#41.
+
 ### 6.2 Approval is not runtime validation
 
 Three states are tracked separately and never imply each other:
