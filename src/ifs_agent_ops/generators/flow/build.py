@@ -715,7 +715,7 @@ class FlowBuilder:
         if self.confirming:
             rules = [(e.when.get("matches"), {"meaning": e.meaning, "step": step.id}) for e in self.cap.errors
                      if e.step == step.id and "matches" in e.when]
-        else:
+        elif "questions" in self.action.returns:      # asks only where the action returns its questions
             for qn in self.cap.questions:
                 if qn.when.get("step") == step.id and "matches" in qn.when:
                     rules.append((qn.when["matches"], {"id": qn.id, "asks": qn.asks, "prompt": qn.prompt}))
@@ -849,7 +849,7 @@ class FlowBuilder:
                             "runAfter": {}, **self.set_error({
                                 "meaning": "missing-input", "detail": f"every {lst.name} entry needs " +
                                 ", ".join(it.name for it in req), "lines": f"@body({q(flt)})"})}}}))
-        else:
+        elif "questions" in self.action.returns:      # asks only where the action returns its questions
             for qn in self.cap.questions:
                 if qn.when.get("missing") and "." not in qn.asks and qn.asks in self.inputs:
                     expr, itype = self.input_ref(qn.asks, None, None)
