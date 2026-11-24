@@ -170,6 +170,15 @@ class FlowBuilder:
     def step_var(self, step_id: str) -> str:
         return f"variables({q(var_name(step_id))})"
 
+    def record_of(self, sid: str) -> str:
+        """The step's record: the step variable, or its first row when the step returns a list (list steps keep
+        {value: [...]}, so a field such as ReleaseNo or @odata.etag is read from the first row)."""
+        step = self.cap.step(sid)
+        op = self.ops.get(step.operation) if step else None
+        if op is not None and op.response.shape == "collection":
+            return f"first(coalesce({self.step_var(sid)}?['value'], json('[]')))"
+        return self.step_var(sid)
+
     def item(self, loop: Optional[str], name: str) -> str:
         return prop(f"items({q(loop)})", name)
 
@@ -202,7 +211,7 @@ class FlowBuilder:
             self.refuse(step, f"reads step {sid!r}, which does not run earlier in this action")
         if self.loop_of[sid] is not None and self.loop_of[sid] != loop:
             self.refuse(step, f"reads per-line step {sid!r} from outside its loop")
-        return prop(self.step_var(sid), fld)
+        return prop(self.record_of(sid), fld)
 
     def overlay(self, steps: list[str], member: str, step: Step, loop: Optional[str]) -> V:
         """A member of the overlaid response records: the latest step with a non-null value wins."""
@@ -276,6 +285,8 @@ class FlowBuilder:
                 out[target.split(".", 1)[1]] = self.source(b, step, loop).json()
         if filter_value is not None:
             out["$filter"] = filter_value.json()
+        if step.expand:
+            out["$expand"] = ",".join(step.expand)
         if top is not None:
             out["$top"] = top
         body = self.body(seq, step, op, loop)
@@ -647,7 +658,7 @@ class FlowBuilder:
         return [(self.unique(f"If_{P}"), cond)]
 
     def after_step(self, seq: Seq, step: Step, op: Operation, loop: Optional[str]) -> None:
-        sv = self.step_var(step.id)
+        sv = self.record_of(step.id)
         for o in self.outputs:
             if o.step != step.id or loop is None:
                 continue
@@ -934,7 +945,7 @@ class FlowBuilder:
             outs = {}
             for o in self.outputs:
                 if self.loop_of[o.step] is None:
-                    outs[o.name] = "@" + prop(self.step_var(o.step), o.field)
+                    outs[o.name] = "@" + prop(self.record_of(o.step), o.field)
                 else:
                     outs[o.name] = f"@variables({q('out_' + var_name(o.name))})"
             body["outputs"] = outs

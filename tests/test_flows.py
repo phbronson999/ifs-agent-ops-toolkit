@@ -503,3 +503,43 @@ def test_validator_rules_for_batches(approved):  # noqa: F811
     # an unset batch does not change approval hashes
     assert cap().content_hash() == Capability.model_validate(
         {**copy.deepcopy(BASE), "steps": [dict(s, batch=None) for s in BASE["steps"]]}).content_hash()
+
+
+# ── list steps: first-row fields, and $expand ────────────────────────────────
+
+def test_fields_of_a_list_step_read_its_first_row_and_expand_is_sent(flows_pkg):
+    def mutate(data):
+        data["steps"][0]["expand"] = ["CustomerRef($select=Name)"]       # find: a query (list) step
+        data["steps"][2]["bindings"]["body.CustomerNo"] = {"step": "find", "field": "CustomerNo"}
+        data["outputs"].append({"name": "found", "step": "find", "field": "OrderNo"})
+        data["actions"][1]["returns"] = ["order_no", "found"]
+    _variant(flows_pkg, mutate)
+    refused = generate(flows_pkg)                       # the fixture connector has no $expand on this query
+    assert not refused.ok and "$expand" in " ".join(refused.errors)
+    spec_file = flows_pkg.root / "power-platform/connectors/OrderHandling/apiDefinition.swagger.json"
+    spec = json.loads(spec_file.read_text(encoding="utf-8"))
+    for ops in spec["paths"].values():
+        get = ops.get("get")
+        if get and any(isinstance(p, dict) and p.get("name") == "$filter" for p in get.get("parameters", [])):
+            get["parameters"].append({"name": "$expand", "in": "query", "required": False, "type": "string"})
+    spec_file.write_text(json.dumps(spec), encoding="utf-8")
+    gen = generate(flows_pkg)
+    assert gen.ok, gen.errors
+    acts = _actions(flows_pkg, "submit")
+    first = "first(coalesce(variables('find')?['value'], json('[]')))"
+    assert acts["Body_Create_Header"]["inputs"]["CustomerNo"] == f"@{first}?['CustomerNo']"
+    assert acts["Respond"]["inputs"]["body"]["outputs"]["found"] == f"@{first}?['OrderNo']"
+    assert acts["Find"]["inputs"]["parameters"]["$expand"] == "CustomerRef($select=Name)"
+    # an entity step is still read directly
+    assert acts["Respond"]["inputs"]["body"]["outputs"]["order_no"] == "@variables('create_header')?['OrderNo']"
+
+
+def test_validator_rules_for_expand(approved):  # noqa: F811
+    ops = load_operations(approved)
+    bad = copy.deepcopy(BASE)
+    bad["steps"][2]["expand"] = ["CustomerRef"]                       # a write
+    found = rules(Capability.model_validate(bad), ops)
+    assert ("step create-header", "bad-expand", "error") in found
+    # an unset expand does not change approval hashes
+    assert cap().content_hash() == Capability.model_validate(
+        {**copy.deepcopy(BASE), "steps": [dict(s, expand=None) for s in BASE["steps"]]}).content_hash()

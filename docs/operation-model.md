@@ -216,6 +216,11 @@ flow reads each part's status and JSON back into its step. With Claude, test suc
 - {id: close-save, operation: X.action.PrePostSave, role: write, batch: save, bindings: {body.Init: {fixed: false}}}
 ```
 
+A query step can return related records with each row: `expand: ["PartNoRef($select=Description,UnitMeas)"]` sends
+`$expand` (the connector operation must offer it). A field read from a query step (`{step: find-order, field:
+ReleaseNo}`, an output, a step warning) is read from its **first row**; to show every row to the agent, return the
+action's `proposal`, which carries each step's full result.
+
 A step warning's `when` is a condition on the step's response, `{field: Result, not_equals: 0}` (or `equals`).
 Prose conditions are allowed for review but cannot be executed: the validator warns and the flow generator
 refuses them.

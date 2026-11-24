@@ -124,6 +124,13 @@ def validate_capability(cap: Capability, ops: dict[str, Operation]) -> list[Find
         if step.requires_input and step.requires_input not in inputs:
             add(where, "unknown-input", "error", f"requires_input {step.requires_input!r} is not an input")
 
+        for item in step.expand or []:
+            nav = item.split("(", 1)[0].strip()
+            if op.method != "GET":
+                add(where, "bad-expand", "error", "expand applies to reads and queries only")
+            elif nav not in op.response.fields and nav not in [e.split("(", 1)[0] for e in op.query.expand]:
+                add(where, "unknown-expand", "warning", f"{nav} was not observed as related data of {op.id}")
+
         for sid in step.body_from:
             if sid not in position or position[sid] >= i:
                 add(where, "bad-body-from", "error", f"body_from {sid!r} must name an earlier step")
