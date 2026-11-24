@@ -104,6 +104,39 @@ class IfsClient:
             data = resp.text
         return IfsResponse(status=resp.status_code, data=data, text=resp.text, headers=resp_headers)
 
+    async def send_changeset(self, projection: str, requests: list, *, headers: Optional[dict[str, str]] = None,
+                             session_id: Optional[str] = None) -> tuple[IfsResponse, list]:
+        """POST ``requests`` (``ifs.batch.BatchRequest``) as one change set to ``<projection>.svc/$batch``.
+
+        Returns the raw response and its parsed parts. The batch itself usually answers 200 even when a part
+        failed; check each part's status (IFS answers a failed change set with the failing part only)."""
+        from ifs_agent_ops.ifs.batch import build_changeset, parse_batch_response
+        from ifs_agent_ops.ifs.paths import projection_path
+
+        session_id = session_id or self.tokens.current_session_id()
+        if not session_id:
+            raise AuthenticationRequired("no_session")
+        try:
+            access_token = await self.tokens.get_access_token(session_id)
+        except Exception as exc:
+            raise AuthenticationRequired("token_error", detail=str(exc)) from exc
+        content_type, body = build_changeset(requests)
+        req_headers = {**(headers or {}), "Content-Type": content_type, "Accept": "multipart/mixed",
+                       "Authorization": f"Bearer {access_token}"}
+        resp = await self._client().post(f"{self.base_url}{projection_path(projection)}/$batch",
+                                         headers=req_headers, content=body.encode("utf-8"))
+        resp_headers = dict(resp.headers)
+        if resp.status_code in (401, 403):
+            raise AuthenticationRequired("unauthorized", status=resp.status_code, headers=resp_headers)
+        if not resp.is_success:
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = resp.text
+            raise IfsApiError(resp.status_code, detail, resp.text, headers=resp_headers)
+        parts = parse_batch_response(resp.text, resp.headers.get("content-type", ""))
+        return IfsResponse(status=resp.status_code, data=None, text=resp.text, headers=resp_headers), parts
+
     async def get_text(self, endpoint: str, *, accept: str, session_id: Optional[str] = None) -> str:
         resp = await self.request("GET", endpoint, headers={"Accept": accept}, session_id=session_id)
         return resp.text

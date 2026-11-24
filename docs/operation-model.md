@@ -201,6 +201,21 @@ A `filter.X` binding can set `match`:
 - `words`: every word is contained. If that finds nothing, the words that match nothing on their own (typos)
   are dropped and the rest searched again. If that still finds nothing, any of the remaining words.
 
+Some IFS saves only work together with framework calls in the same request: sent on their own they fail
+(for example ORA-06531, "Reference to uninitialized collection", because IFS keeps the setup state only within
+one request). The web client sends them as one OData `$batch` change set. Give those steps the same `batch` id:
+consecutive steps with one `batch` id are sent as one change set, in order, and IFS saves all of them or none.
+They must be writes on one IFS service, share their `for_each`, appear together and in order in every action, use
+no `requires_input`, and not read each other's results (those come back together; read before or after). The
+flow reads each part's status and JSON back into its step. With Claude, test such a group with
+`call_protected_batch`.
+
+```yaml
+- {id: open-save,  operation: X.action.PrePostSave, role: write, batch: save, bindings: {body.Init: {fixed: true}}}
+- {id: update-op,  operation: X.update.Orders.OperationArray, role: write, batch: save, bindings: {...}}
+- {id: close-save, operation: X.action.PrePostSave, role: write, batch: save, bindings: {body.Init: {fixed: false}}}
+```
+
 A step warning's `when` is a condition on the step's response, `{field: Result, not_equals: 0}` (or `equals`).
 Prose conditions are allowed for review but cannot be executed: the validator warns and the flow generator
 refuses them.

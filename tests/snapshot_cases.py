@@ -490,7 +490,8 @@ LEGACY_TOOL_NAMES = {
 ADDED_TOOL_NAMES = {"analyze_recording", "draft_operations", "list_operations", "get_operation", "doctor",
                     "capture_create_session", "capture_set_plan", "capture_status", "capture_list_sessions",
                     "capture_complete_task", "capture_skip_task", "capture_add_task", "capture_stop",
-                    "capture_import", "get_validation_status", "record_validation_finding"}
+                    "capture_import", "get_validation_status", "record_validation_finding",
+                    "call_protected_batch"}
 
 
 def mcp_surface(flavor: str) -> dict[str, str]:

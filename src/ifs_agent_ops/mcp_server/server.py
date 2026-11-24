@@ -110,6 +110,18 @@ async def call_protected_api(
     return await handler(endpoint, method, session_id, body, headers, rt().client, rt().test_log)
 
 
+@mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True))
+async def call_protected_batch(
+    projection: str,
+    requests: list[dict],
+    session_id: Optional[str] = None,
+    headers: Optional[dict] = None,
+) -> str:
+    """Send writes that IFS only accepts together as ONE $batch change set (atomic: all saved or none), in order. Use it when a save fails on its own with errors such as ORA-06531 'Reference to uninitialized collection' and the recording shows the web client sending it in a $batch together with framework calls (for example PrePostSave {"Init": true}, the PATCH, PrePostSave {"Init": false}). projection is the IFS service name (e.g. ShopOrderHandling). requests is a list of {method, url, headers?, body?}: method POST/PATCH/PUT/DELETE (reads go before or after, with call_protected_api), url relative to the projection (e.g. "PrePostSave" or "ShopOrds(OrderNo='1',ReleaseNo='%2A',SequenceNo='%2A')/OperationArray(OrderNo='1',ReleaseNo='%2A',SequenceNo='%2A',OperationNo=10)"; encode '*' in keys as %2A), headers such as If-Match, body a JSON object. Returns each part's status, ETag and data, and a test_log_ref for record_validation_finding. If 'authentication_required', call start_oauth."""
+    from ifs_agent_ops.mcp_server.tools.api.call_protected_batch import handler
+    return await handler(projection, requests, session_id, headers, rt().client, rt().test_log)
+
+
 @mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
 async def get_api_guide(guide: Optional[str] = None) -> str:
     """Look up the skill guide for an IFS workflow before querying the API. IFS Cloud endpoint paths, projection names, key fields, and OData filter syntax are customer-specific and non-standard — they cannot be inferred from general OData or REST knowledge. Call this first with a keyword (e.g. 'customer', 'sales', 'parts') to get the correct endpoints and query patterns. Call without arguments to list all available guides."""

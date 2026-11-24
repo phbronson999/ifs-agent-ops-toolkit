@@ -455,3 +455,51 @@ def test_batch_url_escaping():
     assert FlowBuilder.url_safe(Val.of("2026-12-15T00:00:00Z")).const == "2026-12-15T00%3A00%3A00Z"
     assert FlowBuilder.url_safe(Val.of("'a b%'")).const == "'a%20b%25'"
     assert FlowBuilder.url_safe(Val.e("x")).expr.startswith("replace(replace(replace(replace(replace(string(x)")
+
+
+# ── writes in one $batch change set ──────────────────────────────────────────
+
+def test_batched_write_is_sent_as_one_changeset(flows_pkg):
+    from ifs_agent_ops.generators.connector import generate as generate_connector
+
+    _variant(flows_pkg, lambda d: d["steps"][3].update(batch="line-save"))
+    assert generate_connector(flows_pkg).ok      # the connector gains the $batch operation
+    swagger = json.loads((flows_pkg.root / "power-platform/connectors/OrderHandling/apiDefinition.swagger.json")
+                         .read_text(encoding="utf-8"))
+    assert "/$batch" in swagger["paths"]
+    gen = generate(flows_pkg)
+    assert gen.ok, gen.errors
+    acts = _actions(flows_pkg, "submit")
+    assert "Create_Line" in acts and acts["Create_Line"]["inputs"]["host"]["operationId"] == "batch"
+    text = acts["Batch_Create_Line"]["inputs"]
+    assert "Content-Type: multipart/mixed;boundary=changeset_ifs_agent_ops" in text
+    assert "Content-ID: 1" in text and "\r\nPOST " in text and " HTTP/1.1\r\n" in text
+    assert "POST OrderSet(OrderNo='@{replace(" in text and "string(variables('create_header')?['OrderNo'])" in text
+    assert "'*', '%2A')}')/LinesArray HTTP/1.1" in text                  # key escaped inline, '*' as %2A
+    assert "@{string(outputs('Body_Create_Line'))}" in text               # JSON body of the part
+    assert text.rstrip().endswith("--batch_ifs_agent_ops--")
+    ok = acts["Create_Line_Succeeded"]["expression"]
+    assert "equals(length(outputs('Create_Line_Parts')), 1)" in ok and "less(int(substring(" in ok
+    assert acts["Set_create_line"]["inputs"]["value"].startswith("@if(contains(outputs('Create_Line_Parts')[0], '{')")
+    failed = acts["Create_Line_Failed_In_Batch"]["inputs"]["value"]
+    assert failed["changeset"] == ["create-line"] and failed["line"] == "@items('For_Each_Lines')"
+    assert acts["If_Create_Line"]["description"].startswith("One change set")
+
+
+def test_validator_rules_for_batches(approved):  # noqa: F811
+    ops = load_operations(approved)
+    bad = copy.deepcopy(BASE)
+    bad["steps"][0]["batch"] = "x"                      # a lookup
+    bad["steps"][2]["batch"] = "save"                   # header (no for_each) ...
+    bad["steps"][3]["batch"] = "save"                   # ... and line (for_each lines, reads the header's OrderNo)
+    found = rules(Capability.model_validate(bad), ops)
+    assert ("batch x", "batch-not-write", "error") in found
+    assert ("batch save", "batch-for-each", "error") in found
+    assert ("step create-line", "batch-self-reference", "error") in found
+    split = copy.deepcopy(BASE)
+    split["steps"][2]["batch"] = split["steps"][3]["batch"] = "save"
+    split["actions"][1]["steps"] = ["find", "create-header", "defaults", "create-line"]
+    assert ("action submit", "batch-split", "error") in rules(Capability.model_validate(split), ops)
+    # an unset batch does not change approval hashes
+    assert cap().content_hash() == Capability.model_validate(
+        {**copy.deepcopy(BASE), "steps": [dict(s, batch=None) for s in BASE["steps"]]}).content_hash()

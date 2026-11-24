@@ -151,6 +151,8 @@ def validate_capability(cap: Capability, ops: dict[str, Operation]) -> list[Find
             if not any(p.name == name for p in op.body):
                 add(where, "unknown-omit", "warning", f"omit {name}: not a body field of {op.id}")
 
+    _check_batches(cap, ops, position, add)
+
     referenced = {s for a in cap.actions for s in a.steps}
     for a in cap.actions:
         where = f"action {a.name}"
@@ -213,6 +215,38 @@ def validate_capability(cap: Capability, ops: dict[str, Operation]) -> list[Find
         if x.call in {s.operation.split(".")[-1] for s in cap.steps}:
             add(f"excluded {x.call}", "excluded-but-used", "error", f"{x.call} is listed as excluded but a step uses it")
     return out
+
+
+def _check_batches(cap: Capability, ops: dict[str, Operation], position: dict[str, int], add) -> None:
+    """Steps sharing a batch id are one $batch change set: writes on one IFS service, run together."""
+    groups: dict[str, list[Step]] = {}
+    for s in cap.steps:
+        if s.batch:
+            groups.setdefault(s.batch, []).append(s)
+    for bid, steps in groups.items():
+        where = f"batch {bid}"
+        ids = [s.id for s in steps]
+        if any(s.role != "write" for s in steps):
+            add(where, "batch-not-write", "error", "only writes go into a change set (read before or after it)")
+        projections = {ops[s.operation].projection for s in steps if s.operation in ops}
+        if len(projections) > 1:
+            add(where, "batch-services", "error", f"one change set goes to one IFS service ({', '.join(sorted(projections))})")
+        if len({s.for_each for s in steps}) > 1:
+            add(where, "batch-for-each", "error", "every step of a change set needs the same for_each")
+        if any(s.requires_input for s in steps):
+            add(where, "batch-conditional", "error", "steps in a change set cannot use requires_input")
+        for s in steps:
+            for target, src in s.bindings.items():
+                if src.kind == "step" and src.step in ids:
+                    add(f"step {s.id}", "batch-self-reference", "error",
+                        f"{target} reads {src.step}, which is in the same change set (results come back together)")
+        for a in cap.actions:
+            pos = [i for i, sid in enumerate(a.steps) if sid in ids]
+            if not pos:
+                continue
+            if [a.steps[i] for i in pos] != ids or pos != list(range(pos[0], pos[0] + len(ids))):
+                add(f"action {a.name}", "batch-split", "error",
+                    f"batch {bid} must appear whole and in order, with nothing between its steps ({', '.join(ids)})")
 
 
 def record_text(rec) -> str:

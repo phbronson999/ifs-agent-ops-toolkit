@@ -130,6 +130,9 @@ class Step(_M):
     omit: list[str] = Field(default_factory=list, description="body fields removed from the seeded record")
     requires_input: Optional[str] = Field(None, description="Run this step only when this (optional) input is "
                                                             "supplied")
+    batch: Optional[str] = Field(None, description="Writes IFS only accepts together: consecutive steps with the same "
+                                                   "batch id are sent as one $batch change set, in order (all saved "
+                                                   "or none)")
 
 
 class Output(_M):
@@ -229,7 +232,7 @@ class Capability(_M):
         return next((s for s in self.steps if s.id == step_id), None)
 
 
-_LATER_FIELDS = {"match"}   # added after approvals existed: left out of the hash while unset
+_LATER_FIELDS = {"match", "batch"}   # added after approvals existed: left out of the hash while unset
 
 
 def _drop_unset_later_fields(data):
