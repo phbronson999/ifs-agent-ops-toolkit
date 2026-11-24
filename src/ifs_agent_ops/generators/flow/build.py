@@ -442,9 +442,10 @@ class FlowBuilder:
     # ── calls inside $batch (functions with parameter aliases) ───────────────
 
     @staticmethod
-    def url_safe(v: V) -> V:
-        """Escape what IFS's batch request-line parser rejects (':' in date-times) and what URLs cannot carry."""
-        pairs = [("%", "%25"), (" ", "%20"), (":", "%3A"), ("#", "%23"), ("&", "%26")]
+    def url_safe(v: V, star: bool = False) -> V:
+        """Escape what IFS's batch request-line parser rejects (':' in date-times) and what URLs cannot carry.
+        ``star`` also encodes '*' (key values such as ReleaseNo '*'), as the IFS web client does in change sets."""
+        pairs = [("%", "%25"), (" ", "%20"), (":", "%3A"), ("#", "%23"), ("&", "%26")] + ([("*", "%2A")] if star else [])
         if v.is_const:
             text = "null" if v.const is None else str(v.const)
             for a, b in pairs:
@@ -521,6 +522,129 @@ class FlowBuilder:
         failed.add(self.unique(f"{P}_Failed_In_Batch"), self.set_error(err))
         seq.add(self.unique(f"{P}_Succeeded"), {"type": "If", "expression": f"@less({status}, 400)",
                                                 "actions": ok.actions, "else": {"actions": failed.actions}})
+
+    # ── writes in one $batch change set ─────────────────────────────────────
+
+    @staticmethod
+    def inline(v: V) -> str:
+        """A value inside a text action: the constant itself, or an @{...} interpolation."""
+        if v.is_const:
+            return "" if v.const is None else str(v.const)
+        return "@{" + v.expr + "}"
+
+    def groups(self, steps: list[Step]) -> list[list[Step]]:
+        """Consecutive steps with the same batch id form one group; every other step is a group of its own."""
+        out: list[list[Step]] = []
+        for s in steps:
+            if s.batch and out and out[-1][0].batch == s.batch:
+                out[-1].append(s)
+            else:
+                out.append([s])
+        return out
+
+    def group_items(self, group: list[Step], loop: Optional[str]) -> list[tuple[str, dict]]:
+        if len(group) == 1 and not group[0].batch:
+            return self.step_items(group[0], loop)
+        return self.changeset_items(group, loop)
+
+    def changeset_items(self, group: list[Step], loop: Optional[str]) -> list[tuple[str, dict]]:
+        """Send the group's writes as one $batch change set (IFS saves all or none), then read each part back:
+        its status, and its JSON into the step's variable. IFS answers a failed change set with the failing part
+        only, so fewer parts than requests also means failure."""
+        from ifs_agent_ops.generators.connector import BATCH_BOUNDARY, BATCH_OPERATION_ID
+
+        first = group[0]
+        op0 = self.ops[first.operation]
+        cu = self.connectors.get(op0.projection)
+        if cu is None:
+            self.refuse(first, f"no connector for {op0.projection} in deploy.yaml")
+        if not any(isinstance(o, dict) and o.get("operationId") == BATCH_OPERATION_ID
+                   for ops in cu.swagger.get("paths", {}).values() for o in ops.values()):
+            self.refuse(first, "the connector has no $batch operation (regenerate the connector)")
+        self.used[op0.projection] = cu
+        inner = Seq()
+        crlf, cs = "\r\n", "changeset_ifs_agent_ops"
+        text: list[str] = [f"--{BATCH_BOUNDARY}", f"Content-Type: multipart/mixed;boundary={cs}", ""]
+        for n, step in enumerate(group, 1):
+            op = self.ops[step.operation]
+            if op.method == "GET":
+                self.refuse(step, "a change set holds writes only")
+            rendered = render_path(op)
+            if rendered.aliases:
+                self.refuse(step, "an operation with parameter aliases cannot be part of a change set")
+            types = {p.name: p.type for p in op.path_parameters}
+            by_name = {pp.name: pp for pp in rendered.params}
+            url = ""
+            for piece in re.split(r"(\{\w+\})", rendered.path.lstrip("/")):
+                m = re.fullmatch(r"\{(\w+)\}", piece)
+                if not m:
+                    url += piece
+                    continue
+                pp = by_name[m.group(1)]
+                b = step.bindings.get(f"path.{pp.logical}")
+                if b is None:
+                    self.refuse(step, f"path parameter {pp.logical} is not bound")
+                v = self.source(b, step, loop)
+                url += self.inline(self.url_safe(odata_literal(v, types.get(pp.logical)) if pp.literal else v,
+                                                 star=True))
+            text += [f"--{cs}", "Content-Type: application/http", "Content-Transfer-Encoding: binary",
+                     f"Content-ID: {n}", "", f"{op.method} {url} HTTP/1.1",
+                     "Accept: application/json;odata.metadata=full;IEEE754Compatible=true"]
+            for target, b in step.bindings.items():
+                if target.startswith("header."):
+                    text.append(f"{target.split('.', 1)[1]}: {self.inline(self.source(b, step, loop))}")
+            body = self.body(inner, step, op, loop)
+            if body is not None:
+                text += ["Content-Type: application/json;IEEE754Compatible=true", "",
+                         f"@{{string(outputs({q(body)}))}}"]
+            else:
+                text += ["", ""]
+        text += [f"--{cs}--", f"--{BATCH_BOUNDARY}--", ""]
+        P = pascal("_".join(s.id for s in group)) if len(group) <= 3 else pascal(first.batch)
+        request = inner.add(self.unique(f"Batch_{P}"), {
+            "type": "Compose", "inputs": crlf.join(text),
+            "description": f"Change set {first.batch}: " + ", ".join(s.id for s in group)})
+        name = self.call(inner, first, op0, loop, self.unique(P), {
+            "Content-Type": f"multipart/mixed;boundary={BATCH_BOUNDARY}", "batch": f"@outputs({q(request)})"},
+            operation_id=BATCH_OPERATION_ID)
+        for s in group:
+            self.call_name[s.id] = name
+        resp = inner.add(self.unique(f"{P}_Response"), {
+            "type": "Compose", "inputs": f"@base64ToString(body({q(name)})?['$content'])"})
+        parts = inner.add(self.unique(f"{P}_Parts"), {
+            "type": "Compose", "inputs": f"@skip(split(outputs({q(resp)}), 'HTTP/1.1 '), 1)"})
+        pv = f"outputs({q(parts)})"
+
+        def status(i: int) -> str:
+            return f"int(substring({pv}[{i}], 0, 3))"
+
+        def part_json(i: int) -> str:
+            p = f"{pv}[{i}]"
+            return (f"if(contains({p}, '{{'), json(substring({p}, indexOf({p}, '{{'), "
+                    f"add(sub(lastIndexOf({p}, '}}'), indexOf({p}, '{{')), 1))), json('{{}}'))")
+
+        ok = all_of([f"equals(length({pv}), {len(group)})"] + [f"less({status(i)}, 400)" for i in range(len(group))])
+        main = next((s for s in group if any(e.step == s.id for e in self.cap.errors)), group[-1])
+        err = self.failure(main, name, loop)
+        err["status"] = f"@if(greater(length({pv}), 0), {status(0)}, null)"
+        err["ifs_response"] = f"@outputs({q(resp)})"
+        err["meaning"] = err["meaning"].replace(f"outputs({q(name)})?['statusCode']",
+                                                f"if(greater(length({pv}), 0), {status(0)}, 0)") \
+            if isinstance(err["meaning"], str) else err["meaning"]
+        err["changeset"] = [s.id for s in group]
+        good = Seq()
+        for i, s in enumerate(group):
+            good.add(self.unique(f"Set_{var_name(s.id)}"), {"type": "SetVariable", "inputs": {
+                "name": var_name(s.id), "value": "@" + part_json(i)}})
+            self.after_step(good, s, self.ops[s.operation], loop)
+        bad = Seq()
+        bad.add(self.unique(f"{P}_Failed_In_Batch"), self.set_error(err))
+        inner.add(self.unique(f"{P}_Succeeded"), {"type": "If", "expression": "@" + ok,
+                                                   "actions": good.actions, "else": {"actions": bad.actions}})
+        cond = {"type": "If", "expression": self.run_condition(first, loop), "actions": inner.actions,
+                "else": {"actions": {}}, "description": short_description(
+                    f"One change set (all saved or none): {', '.join(s.id for s in group)}")}
+        return [(self.unique(f"If_{P}"), cond)]
 
     def after_step(self, seq: Seq, step: Step, op: Operation, loop: Optional[str]) -> None:
         sv = self.step_var(step.id)
@@ -755,9 +879,10 @@ class FlowBuilder:
             if list_name is None:
                 for s in steps:
                     self.loop_of[s.id] = None
-                    for name, act in self.step_items(s, None):
-                        try_seq.add(name, act)
                     top_steps.append(s)
+                for group in self.groups(steps):
+                    for name, act in self.group_items(group, None):
+                        try_seq.add(name, act)
                 continue
             if list_name not in self.inputs or self.inputs[list_name].type != "list":
                 self.refuse(steps[0], f"for_each {list_name!r} is not a list input")
@@ -767,8 +892,8 @@ class FlowBuilder:
                 self.loop_of[s.id] = loop
                 body.add(self.unique(f"Reset_{var_name(s.id)}"), {"type": "SetVariable", "inputs": {
                     "name": var_name(s.id), "value": {}}})
-            for s in steps:
-                for name, act in self.step_items(s, loop):
+            for group in self.groups(steps):
+                for name, act in self.group_items(group, loop):
                     body.add(name, act)
             if proposal:
                 body.add(self.unique(f"Keep_{pascal(list_name)}_Results"), {

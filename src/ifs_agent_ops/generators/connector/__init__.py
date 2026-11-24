@@ -222,7 +222,8 @@ def _build_one(package: Package, projection: str, selected: list[Selected], caps
     paths: dict[str, dict] = {}
     for path, method in sorted(objects):
         paths.setdefault(path, {})[method] = objects[(path, method)]
-    if any(e.aliases for e in entries):
+    batched = {s.operation for c in caps.values() if c.status == "approved" for s in c.steps if s.batch}
+    if any(e.aliases for e in entries) or any(sel.op.id in batched for sel in selected):
         paths["/$batch"] = batch_operation()
     for ops in paths.values():
         for o in ops.values():
@@ -296,8 +297,8 @@ def batch_operation() -> dict:
     DEV 2026-11-22). The batch body carries the inner request line unchanged."""
     return {"post": {
         "operationId": BATCH_OPERATION_ID, "summary": "OData batch",
-        "description": "Send OData requests in one multipart/mixed batch (used for functions with parameter "
-                       "aliases).",
+        "description": "Send OData requests in one multipart/mixed batch (functions with parameter aliases, and "
+                       "writes IFS only accepts together in one change set).",
         "consumes": ["multipart/mixed"], "produces": ["multipart/mixed"],
         "parameters": [
             {"name": "Content-Type", "in": "header", "required": True, "type": "string", "x-ms-summary": "Content-Type",
