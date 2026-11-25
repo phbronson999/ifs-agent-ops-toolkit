@@ -65,6 +65,9 @@ class Source(_M):
     match: Optional[Match] = Field(None, description="filter.X targets only: eq (default), ne, contains "
                                    "(case-insensitive substring) or words (every word contained; words that match "
                                    "nothing on their own are dropped; then any word)")
+    or_fields: Optional[list[str]] = Field(None, description="match contains/words only: more fields searched "
+                                 "with the same text (a row matches when any of the fields matches, e.g. the code "
+                                 "as well as the description); rows where a searched field equals the text come first")
     note: Optional[str] = None
 
     @model_validator(mode="after")
@@ -234,7 +237,7 @@ class Capability(_M):
         return next((s for s in self.steps if s.id == step_id), None)
 
 
-_LATER_FIELDS = {"match", "batch", "expand"}   # added after approvals existed: left out of the hash while unset
+_LATER_FIELDS = {"match", "batch", "expand", "or_fields"}   # added after approvals existed: left out of the hash while unset
 
 
 def _drop_unset_later_fields(data):
