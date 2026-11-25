@@ -70,6 +70,8 @@ def _source_text(src: Source) -> str:
         text = f"{kind} `{getattr(src, kind)}`" + (f" ({src.transform})" if src.transform else "")
     if src.match and src.match != "eq":
         text += f" ({MATCH_TEXT[src.match]})"
+    if src.or_fields:
+        text += f" (also searches {', '.join(src.or_fields)}; exact matches first)"
     return text + (f" (note: {_one_line(src.note)})" if src.note else "")
 
 

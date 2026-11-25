@@ -141,8 +141,14 @@ def validate_capability(cap: Capability, ops: dict[str, Operation]) -> list[Find
                 add(where, "unknown-target", "error", f"{target} is not a parameter of {op.id}")
                 continue
             _check_source(cap, step, i, target, src, tobj, inputs, position, ops, add)
-            if src.match is not None:
+            if src.match is not None or src.or_fields:
                 _check_match(where, target, src, tobj, add)
+            for extra in src.or_fields or []:
+                xobj = _target(op, f"filter.{extra}")
+                if not xobj:
+                    add(where, "unknown-target", "error", f"{target}: or_fields {extra} is not a field of {op.id}")
+                elif xobj is not True and _edm(xobj) not in (None, "Edm.String"):
+                    add(where, "bad-match", "error", f"{target}: or_fields {extra} needs a text field")
         words = [t for t, b in step.bindings.items() if b.match == "words"]
         if len(words) > 1:
             add(where, "bad-match", "error", f"only one filter per step can use match: words ({', '.join(words)})")
@@ -336,6 +342,8 @@ def _check_match(where, target, src: Source, tobj, add) -> None:
             add(where, "bad-match", "error", f"{target}: match {src.match} needs a text field (it is {edm})")
         if src.kind not in ("input", "item"):
             add(where, "bad-match", "warning", f"{target}: match {src.match} is meant for searching with an input")
+    if src.or_fields and src.match not in ("contains", "words"):
+        add(where, "bad-match", "error", f"{target}: or_fields needs match contains or words")
 
 
 def _type_check(where, target, input_type, transform, canonical, add):

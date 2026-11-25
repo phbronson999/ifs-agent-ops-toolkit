@@ -333,12 +333,48 @@ class FlowBuilder:
             match = b.match or "eq"
             v = self.source(b, step, loop)
             if match == "words":
-                words = (name, v)
+                words = ([name] + list(b.or_fields or []), v)
             elif match in ("eq", "ne"):
                 parts.append(concat([V.of(f"{name}{TAB}{match}{TAB}"), odata_literal(v, t)]))
+            elif b.or_fields:   # every word in one of the fields: (all words in A or all words in B)
+                alts = [self.contains_words(f, v) for f in [name] + list(b.or_fields or [])]
+                parts.append(self.wrapped(alts))
             else:   # contains, case-insensitive: one contains() per word (no spaces inside quoted values)
                 parts.append(self.contains_words(name, v))
         return parts, words
+
+    @staticmethod
+    def wrapped(alts: list[V]) -> V:
+        """Alternatives joined with or, in parentheses (so they combine with the other filters by and)."""
+        out: list[V] = [V.of("(")]
+        for i, a in enumerate(alts):
+            out += ([V.of(OR)] if i else []) + [a]
+        return concat(out + [V.of(")")])
+
+    def exact_first(self, seq: Seq, step: Step, loop: Optional[str]) -> None:
+        """For a search over several fields: rows where a searched field equals the search text (ignoring case)
+        come first, so a short code the user typed is not lost among descriptions that merely contain it."""
+        for target, b in step.bindings.items():
+            if not (target.startswith("filter.") and b.or_fields):
+                continue
+            fields = [target.split(".", 1)[1]] + list(b.or_fields or [])
+            text = f"toLower(trim(string(coalesce({self.source(b, step, loop).wdl()}, ''))))"
+            sv = var_name(step.id)
+            rows = f"coalesce(variables({q(sv)})?['value'], json('[]'))"
+            same = any_of([f"equals(toLower(trim(string(coalesce(item()?[{q(f)}], '')))), {text})" for f in fields])
+            P = pascal(step.id)
+            exact = seq.add(self.unique(f"{P}_Exact"), {"type": "Query", "inputs": {
+                "from": f"@{rows}", "where": "@" + same}})
+            rest = seq.add(self.unique(f"{P}_Rest"), {"type": "Query", "inputs": {
+                "from": f"@{rows}", "where": f"@not({same})"}})
+            ordered = seq.add(self.unique(f"{P}_Ordered"), {"type": "Compose", "inputs": (
+                f"@setProperty(coalesce(variables({q(sv)}), json('{{}}')), 'value', "
+                f"union(body({q(exact)}), body({q(rest)})))")})
+            seq.add(self.unique(f"Set_{sv}_Ordered"), {"type": "SetVariable", "inputs": {
+                "name": sv, "value": f"@outputs({q(ordered)})"}})
+            self.notes.append(f"step {step.id}: searches {', '.join(fields)}; rows where one of them equals the "
+                              "search text come first")
+            return
 
     @staticmethod
     def contains_words(name: str, v: V) -> V:
@@ -442,6 +478,7 @@ class FlowBuilder:
         else:
             before = self.words_reset(step)
             self.words_search(inner, step, op, loop, swagger_params, parts, words)
+        self.exact_first(inner, step, loop)
         self.after_step(inner, step, op, loop)
         if_name = self.unique(f"If_{pascal(step.id)}")
         cond = {"type": "If", "expression": self.run_condition(step, loop), "actions": inner.actions,
@@ -750,17 +787,22 @@ class FlowBuilder:
                                                                                      "value": []}})]
 
     def words_search(self, seq: Seq, step: Step, op: Operation, loop: Optional[str], swagger_params: dict,
-                     parts: list[V], words: tuple[str, V]) -> None:
+                     parts: list[V], words: tuple[list[str], V]) -> None:
         """Every word contained; if nothing matches, drop the words that match nothing on their own and search
         again with the rest; if still nothing, any of the remaining words."""
-        field_name, text = words
+        field_names, text = words
         sv = var_name(step.id)
         base = self.joined(parts)
         prefix = f"concat({base.wdl()}, {q(AND)}, " if base is not None else "concat("
         P = pascal(step.id)
 
         def term(x: str) -> str:
-            return f"concat('contains(tolower({field_name}),', {odata_string(V.e(x)).expr}, ')')"
+            # one word: contained in any of the searched fields
+            lit_word = odata_string(V.e(x)).expr
+            each = [f"'contains(tolower({f}),', {lit_word}, ')'" for f in field_names]
+            if len(each) == 1:
+                return f"concat({each[0]})"
+            return "concat('(', " + f", {q(OR)}, ".join(each) + ", ')')"
 
         def search(target: Seq, name: str, terms_expr: str, sep: str, top: int) -> str:
             joined = f"join({terms_expr}, {q(sep)})"
@@ -813,7 +855,7 @@ class FlowBuilder:
                                               "actions": refine.actions, "else": {"actions": {}}})
         seq.add(self.unique(f"Set_{sv}"), {"type": "SetVariable", "inputs": {
             "name": sv, "value": f"@setProperty(json('{{}}'), 'value', variables({q(sv + '_rows')}))"}})
-        self.notes.append(f"step {step.id}: word search on {field_name} (every word; then without words that "
+        self.notes.append(f"step {step.id}: word search on {', '.join(field_names)} (every word; then without words that "
                           "match nothing alone; then any word). Candidates are not ranked by how many words match.")
 
     # ── gates ────────────────────────────────────────────────────────────────

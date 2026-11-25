@@ -16,6 +16,7 @@ from ifs_agent_ops.deploy import powerplatform as ppa
 from ifs_agent_ops.deploy import targets as tg
 from ifs_agent_ops.deploy.intent import load_intent, scaffold
 from ifs_agent_ops.generators.flow import MARKER, flow_dir, flow_name, generate
+from ifs_agent_ops.generators.flow.build import FlowBuilder
 from ifs_agent_ops.generators.flow.expr import V, concat, odata_literal, odata_string
 from ifs_agent_ops.operations.capability import Capability
 from ifs_agent_ops.operations.capability_store import approve_capability
@@ -226,6 +227,61 @@ def test_word_search(flows_pkg):
     assert "'\tor\t'" in acts["Find_Any_Word"]["inputs"]["parameters"]["$filter"]
     assert acts["Set_find"]["inputs"]["value"] == "@setProperty(json('{}'), 'value', variables('find_rows'))"
     assert "word search" in (flow_dir(flows_pkg, "create-order") / "report.md").read_text(encoding="utf-8")
+
+
+def test_search_over_several_fields_puts_exact_matches_first(flows_pkg):
+    def mutate(data):
+        data["steps"][0]["bindings"]["filter.CustomerNo"] = {"input": "customer_no", "match": "contains",
+                                                            "or_fields": ["OrderNo"]}
+
+    _variant(flows_pkg, mutate)
+    assert generate(flows_pkg).ok
+    acts = _actions(flows_pkg, "prepare")
+    flt = acts["Find"]["inputs"]["parameters"]["$filter"]
+    # every word in one of the fields: (words in CustomerNo or words in OrderNo), and-ed with the other filters
+    assert "concat('(', concat('contains(tolower(CustomerNo),''', " in flt
+    assert "'\tor\t', concat('contains(tolower(OrderNo),''', " in flt and flt.endswith(", ')'))")
+    alts = [FlowBuilder.contains_words(f, V.of("IT")) for f in ("Description", "DestinationId")]
+    assert FlowBuilder.wrapped(alts).const == \
+        "(contains(tolower(Description),'it')\tor\tcontains(tolower(DestinationId),'it'))"
+    exact = acts["Find_Exact"]["inputs"]
+    assert exact["from"] == "@coalesce(variables('find')?['value'], json('[]'))"
+    assert "item()?['CustomerNo']" in exact["where"] and "item()?['OrderNo']" in exact["where"]
+    assert "triggerBody()?['customer_no']" in exact["where"]
+    assert acts["Find_Rest"]["inputs"]["where"] == "@not(" + exact["where"][1:] + ")"
+    assert acts["Set_find_Ordered"]["inputs"]["value"] == "@outputs('Find_Ordered')"
+    assert "union(body('Find_Exact'), body('Find_Rest'))" in acts["Find_Ordered"]["inputs"]
+    report = (flow_dir(flows_pkg, "create-order") / "report.md").read_text(encoding="utf-8")
+    assert "searches CustomerNo, OrderNo" in report
+
+
+def test_word_search_over_several_fields(flows_pkg):
+    def mutate(data):
+        data["steps"][0]["bindings"]["filter.CustomerNo"] = {"input": "customer_no", "match": "words",
+                                                            "or_fields": ["OrderNo"]}
+
+    _variant(flows_pkg, mutate)
+    assert generate(flows_pkg).ok
+    acts = _actions(flows_pkg, "prepare")
+    term = acts["Find_Terms"]["inputs"]["select"]
+    assert term.startswith("@concat('(', 'contains(tolower(CustomerNo),', ")
+    assert "'	or	', 'contains(tolower(OrderNo),', " in term
+    assert "Find_Exact" in acts and "Find_Ordered" in acts
+
+
+def test_or_fields_rules(approved):  # noqa: F811
+    ops = load_operations(approved)
+    bad = copy.deepcopy(BASE)
+    bad["steps"][0]["bindings"]["filter.CustomerNo"] = {"input": "customer_no", "or_fields": ["OrderNo"]}
+    assert ("step find", "bad-match", "error") in rules(Capability.model_validate(bad), ops)
+    bad["steps"][0]["bindings"]["filter.CustomerNo"] = {"input": "customer_no", "match": "contains",
+                                                       "or_fields": ["Nope"]}
+    assert ("step find", "unknown-target", "error") in rules(Capability.model_validate(bad), ops)
+    # unset or_fields does not change approval hashes
+    assert cap().content_hash() == Capability.model_validate(
+        {**copy.deepcopy(BASE), "steps": [dict(s, bindings={k: dict(v, or_fields=None)
+                                                            for k, v in s["bindings"].items()})
+                                          for s in BASE["steps"]]}).content_hash()
 
 
 def test_refusals(flows_pkg):
